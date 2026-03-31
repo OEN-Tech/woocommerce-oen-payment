@@ -20,7 +20,13 @@ class OEN_Webhook_Handler {
      */
     public function handle(): void {
         $raw_body = file_get_contents( 'php://input' );
-        $payload  = json_decode( $raw_body, true );
+
+        // Step 1: HMAC signature verification (if webhook secret is configured).
+        if ( ! $this->verify_signature( $raw_body ) ) {
+            return;
+        }
+
+        $payload = json_decode( $raw_body, true );
 
         if ( ! is_array( $payload ) || empty( $payload['orderId'] ) ) {
             $this->log( 'Invalid webhook payload: missing orderId', $raw_body );
@@ -34,6 +40,14 @@ class OEN_Webhook_Handler {
         $payload['transactionHid'] = sanitize_text_field( $payload['transactionHid'] ?? '' );
         $payload['status']         = sanitize_text_field( $payload['status'] ?? '' );
         $payload['message']        = sanitize_text_field( $payload['message'] ?? '' );
+
+        // Server-side verification requires transactionHid.
+        $transaction_hid = $payload['transactionHid'];
+        if ( empty( $transaction_hid ) ) {
+            $this->log( 'Missing transactionHid in webhook payload', $raw_body );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Missing transaction ID' ], 400 );
+            return;
+        }
 
         $order = $this->find_order_by_oen_order_id( $payload['orderId'] );
 
@@ -50,53 +64,126 @@ class OEN_Webhook_Handler {
             return;
         }
 
-        // Verify webhook amount matches order total — amount is mandatory.
-        if ( ! isset( $payload['amount'] ) || ! ctype_digit( (string) $payload['amount'] ) ) {
-            $this->log( sprintf( 'Invalid or missing amount in webhook for order #%d', $order->get_id() ) );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Invalid or missing amount' ], 400 );
-            return;
+        // Step 2: Server-side verification — query OEN API for authoritative transaction state.
+        // This replaces payload-based amount validation (PR #8) with API-verified amount check.
+        $transaction = $this->verify_transaction( $transaction_hid, $order );
+        if ( null === $transaction ) {
+            return; // verify_transaction already sent the error response.
         }
 
-        $order_total = intval( $order->get_total() );
-        if ( intval( $payload['amount'] ) !== $order_total ) {
-            $this->log(
-                sprintf(
-                    'Amount mismatch for order #%d: webhook=%s, order=%d',
-                    $order->get_id(),
-                    $payload['amount'],
-                    $order_total
-                )
-            );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Amount mismatch' ], 400 );
-            return;
-        }
+        $status = $transaction['status'] ?? '';
 
-        $success = $payload['success'] ?? false;
-        $status  = $payload['status'] ?? '';
-
-        if ( $success && 'charged' === $status ) {
-            $this->handle_success( $order, $payload );
+        if ( 'charged' === $status ) {
+            $this->handle_success( $order, $transaction );
         } else {
-            $this->handle_failure( $order, $payload );
+            $this->handle_failure( $order, $transaction );
         }
 
         wp_send_json( [ 'status' => 'ok' ] );
     }
 
     /**
-     * Handle a successful payment webhook.
+     * Verify HMAC signature if webhook secret is configured.
      *
-     * @param \WC_Order $order   The WooCommerce order.
-     * @param array     $payload The webhook payload.
+     * When no secret is set, signature check is skipped (backward-compatible).
+     * Returns true if verification passes or is not configured.
+     *
+     * @param string $raw_body Raw request body.
+     * @return bool
      */
-    private function handle_success( \WC_Order $order, array $payload ): void {
-        $transaction_hid = $payload['transactionHid'] ?? '';
+    private function verify_signature( string $raw_body ): bool {
+        $webhook_secret = get_option( 'oen_webhook_secret', '' );
+
+        if ( empty( $webhook_secret ) ) {
+            return true;
+        }
+
+        $signature = $_SERVER['HTTP_X_OEN_SIGNATURE'] ?? '';
+        $expected  = hash_hmac( 'sha256', $raw_body, $webhook_secret );
+
+        if ( ! hash_equals( $expected, $signature ) ) {
+            $this->log( 'Invalid webhook signature' );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Invalid signature' ], 403 );
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Verify transaction via OEN API server-side call.
+     *
+     * Never trust webhook payload for payment decisions — always confirm
+     * transaction status, amount, and order binding with a direct API query.
+     *
+     * @param string    $transaction_hid The OEN transaction HID.
+     * @param \WC_Order $order           The WooCommerce order.
+     * @return array|null Verified transaction data, or null on failure.
+     */
+    private function verify_transaction( string $transaction_hid, \WC_Order $order ): ?array {
+        try {
+            $api         = OEN_API_Client::from_settings();
+            $transaction = $api->get_transaction( $transaction_hid );
+        } catch ( \Throwable $e ) {
+            $this->log(
+                sprintf( 'API verification failed for order #%d: %s', $order->get_id(), $e->getMessage() )
+            );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Verification failed' ], 502 );
+            return null;
+        }
+
+        // Verify the transaction belongs to this order (prevent cross-order replay).
+        // Compare against stored meta, not webhook payload (which is attacker-controlled).
+        $api_order_id = $transaction['orderId'] ?? '';
+        $expected_id  = $order->get_meta( '_oen_order_id' );
+
+        if ( $api_order_id !== $expected_id ) {
+            $this->log(
+                sprintf(
+                    'Order ID mismatch for order #%d: api=%s, expected=%s',
+                    $order->get_id(),
+                    sanitize_text_field( $api_order_id ),
+                    $expected_id
+                )
+            );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Order mismatch' ], 400 );
+            return null;
+        }
+
+        // Verify amount matches order total (OEN API returns integer TWD amount).
+        $api_amount  = intval( $transaction['amount'] ?? 0 );
+        $order_total = intval( $order->get_total() );
+
+        if ( $api_amount !== $order_total ) {
+            $this->log(
+                sprintf(
+                    'Amount mismatch for order #%d: api=%d, order=%d',
+                    $order->get_id(),
+                    $api_amount,
+                    $order_total
+                )
+            );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Amount mismatch' ], 400 );
+            return null;
+        }
+
+        return $transaction;
+    }
+
+    /**
+     * Handle a successful payment.
+     *
+     * @param \WC_Order $order       The WooCommerce order.
+     * @param array     $transaction Verified transaction data from OEN API.
+     */
+    private function handle_success( \WC_Order $order, array $transaction ): void {
+        $transaction_hid = $transaction['transactionHid'] ?? '';
 
         // Store payment metadata.
         $order->update_meta_data( '_oen_paid_at', current_time( 'c' ) );
 
         // Store CVS-specific metadata if present.
-        $payment_info = $payload['paymentInfo'] ?? [];
+        $payment_info = $transaction['paymentInfo'] ?? [];
         if ( ! empty( $payment_info['cvsName'] ) ) {
             $order->update_meta_data( '_oen_cvs_name', sanitize_text_field( $payment_info['cvsName'] ) );
         }
@@ -115,7 +202,7 @@ class OEN_Webhook_Handler {
         $order->add_order_note(
             sprintf(
                 /* translators: %s: OEN transaction HID */
-                __( 'OEN Payment completed. Transaction: %s', 'woocommerce-oen-payment' ),
+                __( 'OEN Payment completed (verified). Transaction: %s', 'woocommerce-oen-payment' ),
                 $transaction_hid
             )
         );
@@ -124,24 +211,24 @@ class OEN_Webhook_Handler {
     }
 
     /**
-     * Handle a failed payment webhook.
+     * Handle a failed payment.
      *
-     * @param \WC_Order $order   The WooCommerce order.
-     * @param array     $payload The webhook payload.
+     * @param \WC_Order $order       The WooCommerce order.
+     * @param array     $transaction Verified transaction data from OEN API.
      */
-    private function handle_failure( \WC_Order $order, array $payload ): void {
-        $message = $payload['message'] ?: __( 'Payment failed.', 'woocommerce-oen-payment' );
+    private function handle_failure( \WC_Order $order, array $transaction ): void {
+        $status = sanitize_text_field( $transaction['status'] ?? 'unknown' );
 
         $order->update_status(
             'failed',
             sprintf(
-                /* translators: %s: failure reason */
-                __( 'OEN Payment failed: %s', 'woocommerce-oen-payment' ),
-                $message
+                /* translators: %s: transaction status from API */
+                __( 'OEN Payment failed (status: %s)', 'woocommerce-oen-payment' ),
+                sanitize_text_field( $status )
             )
         );
 
-        $this->log( 'Payment failed for order #' . $order->get_id() . ': ' . $message );
+        $this->log( 'Payment failed for order #' . $order->get_id() . ': status=' . sanitize_text_field( $status ) );
     }
 
     /**

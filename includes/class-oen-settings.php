@@ -83,6 +83,13 @@ class OEN_Settings extends WC_Settings_Page {
                 'default' => '',
             ],
             [
+                'title'    => __( 'Webhook Secret', 'woocommerce-oen-payment' ),
+                'desc_tip' => __( 'HMAC secret for webhook signature verification (X-OEN-Signature header). Leave empty to skip signature check.', 'woocommerce-oen-payment' ),
+                'id'       => 'oen_webhook_secret',
+                'type'     => 'password',
+                'default'  => '',
+            ],
+            [
                 'type' => 'sectionend',
                 'id'   => 'oen_api_section',
             ],
