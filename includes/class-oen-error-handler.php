@@ -11,20 +11,6 @@ defined( 'ABSPATH' ) || exit;
  */
 class OEN_Error_Handler {
 
-    /**
-     * Error code to message mapping.
-     */
-    private const ERROR_MESSAGES = [
-        'T0001' => 'Transaction failed, please try again.',
-        'T0002' => 'CVV/CVC verification error.',
-        'T0003' => 'Card expired.',
-        'T0004' => 'Insufficient credit limit.',
-        'T0005' => 'Payment refused.',
-        'V0001' => 'Request error, please contact merchant.',
-        'V0002' => 'Invalid transaction state.',
-        'F0001' => 'System error, please try again.',
-    ];
-
     public function __construct() {
         add_action( 'woocommerce_before_checkout_form', [ $this, 'display_payment_error' ] );
     }

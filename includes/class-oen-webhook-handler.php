@@ -43,6 +43,22 @@ class OEN_Webhook_Handler {
             return;
         }
 
+        // Defense-in-depth: verify webhook amount matches order total.
+        $webhook_amount = $payload['amount'] ?? null;
+        $order_total    = intval( $order->get_total() );
+        if ( null !== $webhook_amount && intval( $webhook_amount ) !== $order_total ) {
+            $this->log(
+                sprintf(
+                    'Amount mismatch for order #%d: webhook=%s, order=%d',
+                    $order->get_id(),
+                    $webhook_amount,
+                    $order_total
+                )
+            );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Amount mismatch' ], 400 );
+            return;
+        }
+
         $success = $payload['success'] ?? false;
         $status  = $payload['status'] ?? '';
 
