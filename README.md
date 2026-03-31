@@ -6,6 +6,7 @@
 
 - **信用卡付款** — 導向 OEN 託管結帳頁面進行信用卡付款
 - **超商繳費** — 產生超商繳費代碼，消費者至超商完成付款
+- **OEN 電子發票自動開立** — 付款完成後由 OEN 自動開立電子發票，支援手機條碼、自然人憑證、統編及捐贈載具
 - 每種付款方式可個別啟用/停用
 - 可設定訂單編號前綴字
 - 可選擇是否將商品明細傳送至 OEN
@@ -62,6 +63,7 @@ Integrates OEN Payment (應援科技) with WooCommerce, enabling merchants to ac
 
 - **Credit Card** — Redirect to OEN's hosted checkout for credit card payment
 - **CVS (Convenience Store)** — Generate payment codes for convenience store payment
+- **OEN Invoice Issuance Built In** — E-invoices issued automatically by OEN after payment, supporting mobile barcode, citizen digital certificate, company tax ID, and charity donation carriers
 - Separate enable/disable toggle for each payment method
 - Configurable order number prefix
 - Optional product detail line items sent to OEN
