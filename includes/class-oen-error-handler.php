@@ -26,7 +26,14 @@ class OEN_Error_Handler {
 
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended
         $error_code = sanitize_text_field( wp_unslash( $_GET['payment_error'] ) );
-        $message    = $this->get_error_message( $error_code );
+
+        // Reject codes that don't match OEN's format (letter + digits, e.g. T0001).
+        if ( ! preg_match( '/^[A-Z][0-9]{4}$/', $error_code ) ) {
+            wc_add_notice( __( 'Payment error. Please try again.', 'woocommerce-oen-payment' ), 'error' );
+            return;
+        }
+
+        $message = $this->get_error_message( $error_code );
 
         wc_add_notice( $message, 'error' );
     }
@@ -49,10 +56,16 @@ class OEN_Error_Handler {
             'F0001' => __( 'System error, please try again.', 'woocommerce-oen-payment' ),
         ];
 
-        return $messages[ $code ] ?? sprintf(
-            /* translators: %s: error code */
-            __( 'Payment error (%s). Please try again.', 'woocommerce-oen-payment' ),
-            $code
+        if ( isset( $messages[ $code ] ) ) {
+            return $messages[ $code ];
+        }
+
+        // Log unknown code for debugging; never reflect user input to the page.
+        wc_get_logger()->warning(
+            sprintf( 'Unknown error code "%s"', $code ),
+            [ 'source' => 'oen-payment' ]
         );
+
+        return __( 'Payment error. Please try again.', 'woocommerce-oen-payment' );
     }
 }
