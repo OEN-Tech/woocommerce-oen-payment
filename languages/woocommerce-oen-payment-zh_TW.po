@@ -1,0 +1,190 @@
+# Traditional Chinese translation for WooCommerce OEN Payment Gateway.
+# Copyright (C) 2026 OEN Technology
+# This file is distributed under the GPL-3.0-or-later.
+msgid ""
+msgstr ""
+"Project-Id-Version: WooCommerce OEN Payment Gateway 1.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-31 00:00+0000\n"
+"PO-Revision-Date: 2026-03-31 00:00+0800\n"
+"Last-Translator: OEN Technology <dev@oen.tw>\n"
+"Language-Team: Chinese (Taiwan)\n"
+"Language: zh_TW\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "WooCommerce OEN Payment Gateway requires WooCommerce to be installed and active."
+msgstr "WooCommerce OEN 金流付款外掛需要先安裝並啟用 WooCommerce。"
+
+msgid "OEN"
+msgstr "OEN"
+
+msgid "Enable OEN method"
+msgstr "啟用 OEN 金流"
+
+msgid "Enable OEN gateway method"
+msgstr "啟用 OEN 金流付款方式"
+
+msgid "Enable gateway method"
+msgstr "啟用金流付款方式"
+
+msgid "Gateway settings"
+msgstr "金流設定"
+
+msgid "Order no prefix"
+msgstr "訂單編號前綴"
+
+msgid "Prefix prepended to the WooCommerce order ID when sent to OEN."
+msgstr "送至 OEN 時，加在 WooCommerce 訂單編號前面的前綴字。"
+
+msgid "Display order item name"
+msgstr "顯示訂單商品名稱"
+
+msgid "Show payment info in email"
+msgstr "在 Email 中顯示付款資訊"
+
+msgid "Enabled payment shop email"
+msgstr "在通知信中加入付款資訊"
+
+msgid "API settings"
+msgstr "API 設定"
+
+msgid "OEN sandbox"
+msgstr "OEN 測試環境"
+
+msgid "sandbox"
+msgstr "測試環境"
+
+msgid "MerchantID"
+msgstr "商店代碼"
+
+msgid "API Token"
+msgstr "API 金鑰"
+
+msgid "Enable/Disable"
+msgstr "啟用/停用"
+
+msgid "Enable %s"
+msgstr "啟用 %s"
+
+msgid "Title"
+msgstr "標題"
+
+msgid "Description"
+msgstr "說明"
+
+msgid "Order not found."
+msgstr "找不到訂單。"
+
+msgid "%s Order"
+msgstr "%s 訂單"
+
+msgid "set"
+msgstr "組"
+
+msgid "pc"
+msgstr "件"
+
+msgid "Shipping"
+msgstr "運費"
+
+msgid "OEN Credit"
+msgstr "OEN 信用卡"
+
+msgid "Pay with credit card via OEN Payment."
+msgstr "使用應援科技信用卡付款。"
+
+msgid "OEN Cvs"
+msgstr "OEN 超商繳費"
+
+msgid "Pay at convenience store via OEN Payment."
+msgstr "使用應援科技超商代碼繳費。"
+
+msgid "OEN ATM"
+msgstr "OEN 虛擬帳號轉帳"
+
+msgid "Pay via ATM virtual account transfer via OEN Payment."
+msgstr "使用應援科技 ATM 虛擬帳號轉帳付款。"
+
+msgid "OEN Payment is not configured. Please set MerchantID and API Token."
+msgstr "OEN 金流尚未設定，請先設定商店代碼與 API 金鑰。"
+
+msgid "OEN Payment API request failed: %s"
+msgstr "OEN 金流 API 請求失敗：%s"
+
+msgid "OEN Payment API returned HTTP %1$d: %2$s"
+msgstr "OEN 金流 API 回傳 HTTP %1$d：%2$s"
+
+msgid "OEN Payment API error [%1$s]: %2$s"
+msgstr "OEN 金流 API 錯誤 [%1$s]：%2$s"
+
+msgid "OEN Payment completed. Transaction: %s"
+msgstr "OEN 金流付款完成。交易編號：%s"
+
+msgid "OEN Payment failed: %s"
+msgstr "OEN 金流付款失敗：%s"
+
+msgid "Payment failed."
+msgstr "付款失敗。"
+
+msgid "Payment Information"
+msgstr "付款資訊"
+
+msgid "Transaction ID"
+msgstr "金流編號"
+
+msgid "Payment Time"
+msgstr "付款時間"
+
+msgid "Store"
+msgstr "繳費超商"
+
+msgid "Payment Code"
+msgstr "繳費代碼"
+
+msgid "Payment Deadline"
+msgstr "繳費期限"
+
+msgid "Transaction ID: %s"
+msgstr "金流編號：%s"
+
+msgid "Payment Time: %s"
+msgstr "付款時間：%s"
+
+msgid "Store: %s"
+msgstr "繳費超商：%s"
+
+msgid "Payment Code: %s"
+msgstr "繳費代碼：%s"
+
+msgid "Payment Deadline: %s"
+msgstr "繳費期限：%s"
+
+msgid "Transaction failed, please try again."
+msgstr "交易失敗，請稍後再試。"
+
+msgid "CVV/CVC verification error."
+msgstr "CVV/CVC 驗證錯誤。"
+
+msgid "Card expired."
+msgstr "信用卡已過期。"
+
+msgid "Insufficient credit limit."
+msgstr "信用額度不足。"
+
+msgid "Payment refused."
+msgstr "付款遭拒絕。"
+
+msgid "Request error, please contact merchant."
+msgstr "請求錯誤，請聯繫商家。"
+
+msgid "Invalid transaction state."
+msgstr "交易狀態異常。"
+
+msgid "System error, please try again."
+msgstr "系統錯誤，請稍後再試。"
+
+msgid "Payment error (%s). Please try again."
+msgstr "付款錯誤（%s），請再試一次。"

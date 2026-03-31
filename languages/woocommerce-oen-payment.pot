@@ -1,0 +1,211 @@
+# Copyright (C) 2026 OEN Technology
+# This file is distributed under the GPL-3.0-or-later.
+msgid ""
+msgstr ""
+"Project-Id-Version: WooCommerce OEN Payment Gateway 1.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-31 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: woocommerce-oen-payment.php
+msgid "WooCommerce OEN Payment Gateway requires WooCommerce to be installed and active."
+msgstr ""
+
+#: includes/class-oen-settings.php
+msgid "OEN"
+msgstr ""
+
+msgid "Enable OEN method"
+msgstr ""
+
+msgid "Enable OEN gateway method"
+msgstr ""
+
+msgid "Enable gateway method"
+msgstr ""
+
+msgid "Gateway settings"
+msgstr ""
+
+msgid "Order no prefix"
+msgstr ""
+
+msgid "Prefix prepended to the WooCommerce order ID when sent to OEN."
+msgstr ""
+
+msgid "Display order item name"
+msgstr ""
+
+msgid "Show payment info in email"
+msgstr ""
+
+msgid "Enabled payment shop email"
+msgstr ""
+
+msgid "API settings"
+msgstr ""
+
+msgid "OEN sandbox"
+msgstr ""
+
+msgid "sandbox"
+msgstr ""
+
+msgid "MerchantID"
+msgstr ""
+
+msgid "API Token"
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php
+msgid "Enable/Disable"
+msgstr ""
+
+#. translators: %s: payment method title
+msgid "Enable %s"
+msgstr ""
+
+msgid "Title"
+msgstr ""
+
+msgid "Description"
+msgstr ""
+
+msgid "Order not found."
+msgstr ""
+
+#. translators: %s: site name
+msgid "%s Order"
+msgstr ""
+
+msgid "set"
+msgstr ""
+
+msgid "pc"
+msgstr ""
+
+msgid "Shipping"
+msgstr ""
+
+#: includes/class-wc-gateway-oen-credit.php
+msgid "OEN Credit"
+msgstr ""
+
+msgid "Pay with credit card via OEN Payment."
+msgstr ""
+
+#: includes/class-wc-gateway-oen-cvs.php
+msgid "OEN Cvs"
+msgstr ""
+
+msgid "Pay at convenience store via OEN Payment."
+msgstr ""
+
+#: includes/class-wc-gateway-oen-atm.php
+msgid "OEN ATM"
+msgstr ""
+
+msgid "Pay via ATM virtual account transfer via OEN Payment."
+msgstr ""
+
+#: includes/class-oen-api-client.php
+msgid "OEN Payment is not configured. Please set MerchantID and API Token."
+msgstr ""
+
+#. translators: %s: error message
+msgid "OEN Payment API request failed: %s"
+msgstr ""
+
+#. translators: 1: HTTP status code 2: response body
+msgid "OEN Payment API returned HTTP %1$d: %2$s"
+msgstr ""
+
+#. translators: 1: error code 2: error message
+msgid "OEN Payment API error [%1$s]: %2$s"
+msgstr ""
+
+#: includes/class-oen-webhook-handler.php
+#. translators: %s: OEN transaction HID
+msgid "OEN Payment completed. Transaction: %s"
+msgstr ""
+
+#. translators: %s: failure reason
+msgid "OEN Payment failed: %s"
+msgstr ""
+
+msgid "Payment failed."
+msgstr ""
+
+#: includes/class-oen-email-handler.php
+msgid "Payment Information"
+msgstr ""
+
+msgid "Transaction ID"
+msgstr ""
+
+msgid "Payment Time"
+msgstr ""
+
+msgid "Store"
+msgstr ""
+
+msgid "Payment Code"
+msgstr ""
+
+msgid "Payment Deadline"
+msgstr ""
+
+#. translators: %s: transaction HID
+msgid "Transaction ID: %s"
+msgstr ""
+
+#. translators: %s: payment timestamp
+msgid "Payment Time: %s"
+msgstr ""
+
+#. translators: %s: convenience store name
+msgid "Store: %s"
+msgstr ""
+
+#. translators: %s: CVS payment code
+msgid "Payment Code: %s"
+msgstr ""
+
+#. translators: %s: payment deadline
+msgid "Payment Deadline: %s"
+msgstr ""
+
+#: includes/class-oen-error-handler.php
+msgid "Transaction failed, please try again."
+msgstr ""
+
+msgid "CVV/CVC verification error."
+msgstr ""
+
+msgid "Card expired."
+msgstr ""
+
+msgid "Insufficient credit limit."
+msgstr ""
+
+msgid "Payment refused."
+msgstr ""
+
+msgid "Request error, please contact merchant."
+msgstr ""
+
+msgid "Invalid transaction state."
+msgstr ""
+
+msgid "System error, please try again."
+msgstr ""
+
+#. translators: %s: error code
+msgid "Payment error (%s). Please try again."
+msgstr ""
