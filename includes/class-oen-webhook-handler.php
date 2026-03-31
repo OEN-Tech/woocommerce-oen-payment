@@ -28,6 +28,13 @@ class OEN_Webhook_Handler {
             return;
         }
 
+        // Sanitize all external string fields to prevent HTML injection in
+        // order notes, meta values, and log entries.
+        $payload['orderId']        = sanitize_text_field( $payload['orderId'] );
+        $payload['transactionHid'] = sanitize_text_field( $payload['transactionHid'] ?? '' );
+        $payload['status']         = sanitize_text_field( $payload['status'] ?? '' );
+        $payload['message']        = sanitize_text_field( $payload['message'] ?? '' );
+
         $order = $this->find_order_by_oen_order_id( $payload['orderId'] );
 
         if ( ! $order ) {
@@ -118,7 +125,7 @@ class OEN_Webhook_Handler {
      * @param array     $payload The webhook payload.
      */
     private function handle_failure( \WC_Order $order, array $payload ): void {
-        $message = $payload['message'] ?? __( 'Payment failed.', 'woocommerce-oen-payment' );
+        $message = $payload['message'] ?: __( 'Payment failed.', 'woocommerce-oen-payment' );
 
         $order->update_status(
             'failed',
