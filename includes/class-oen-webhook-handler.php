@@ -43,15 +43,20 @@ class OEN_Webhook_Handler {
             return;
         }
 
-        // Defense-in-depth: verify webhook amount matches order total.
-        $webhook_amount = $payload['amount'] ?? null;
-        $order_total    = intval( $order->get_total() );
-        if ( null !== $webhook_amount && intval( $webhook_amount ) !== $order_total ) {
+        // Verify webhook amount matches order total — amount is mandatory.
+        if ( ! isset( $payload['amount'] ) || ! ctype_digit( (string) $payload['amount'] ) ) {
+            $this->log( sprintf( 'Invalid or missing amount in webhook for order #%d', $order->get_id() ) );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Invalid or missing amount' ], 400 );
+            return;
+        }
+
+        $order_total = intval( $order->get_total() );
+        if ( intval( $payload['amount'] ) !== $order_total ) {
             $this->log(
                 sprintf(
                     'Amount mismatch for order #%d: webhook=%s, order=%d',
                     $order->get_id(),
-                    $webhook_amount,
+                    $payload['amount'],
                     $order_total
                 )
             );
