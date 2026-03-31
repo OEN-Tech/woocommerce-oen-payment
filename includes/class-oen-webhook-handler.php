@@ -57,29 +57,52 @@ class OEN_Webhook_Handler {
             return;
         }
 
-        // Skip if the order is already completed or processing.
-        if ( $order->is_paid() ) {
-            $this->log( 'Order #' . $order->get_id() . ' already paid, skipping webhook.' );
-            wp_send_json( [ 'status' => 'ok', 'message' => 'Already processed' ] );
+        // Acquire DB-level lock to prevent concurrent webhook processing for the same order.
+        if ( ! $this->acquire_lock( $order->get_id() ) ) {
+            $this->log( 'Order #' . $order->get_id() . ' is being processed by another request.' );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Processing in progress' ], 409 );
             return;
         }
 
-        // Step 2: Server-side verification — query OEN API for authoritative transaction state.
-        // This replaces payload-based amount validation (PR #8) with API-verified amount check.
-        $transaction = $this->verify_transaction( $transaction_hid, $order );
-        if ( null === $transaction ) {
-            return; // verify_transaction already sent the error response.
+        // Process under lock. Collect response before releasing — wp_send_json() calls exit,
+        // so we must release the lock explicitly before sending the response.
+        $response      = [ 'status' => 'ok' ];
+        $response_code = 200;
+        $order_id      = $order->get_id();
+
+        try {
+            // Re-read order after acquiring lock — the other request may have completed.
+            $order = wc_get_order( $order_id );
+
+            if ( ! $order ) {
+                $this->log( 'Order #' . $order_id . ' not found after lock acquisition.' );
+                $response      = [ 'status' => 'error', 'message' => 'Order not found' ];
+                $response_code = 404;
+            } elseif ( $order->is_paid() ) {
+                $this->log( 'Order #' . $order_id . ' already paid, skipping webhook.' );
+                $response = [ 'status' => 'ok', 'message' => 'Already processed' ];
+            } else {
+                // Step 2: Server-side verification — query OEN API for authoritative transaction state.
+                $transaction = $this->verify_transaction( $transaction_hid, $order );
+                if ( null === $transaction ) {
+                    // verify_transaction already logged the error.
+                    $response      = [ 'status' => 'error', 'message' => 'Verification failed' ];
+                    $response_code = 502;
+                } else {
+                    $status = $transaction['status'] ?? '';
+
+                    if ( 'charged' === $status ) {
+                        $this->handle_success( $order, $transaction );
+                    } else {
+                        $this->handle_failure( $order, $transaction );
+                    }
+                }
+            }
+        } finally {
+            $this->release_lock( $order_id );
         }
 
-        $status = $transaction['status'] ?? '';
-
-        if ( 'charged' === $status ) {
-            $this->handle_success( $order, $transaction );
-        } else {
-            $this->handle_failure( $order, $transaction );
-        }
-
-        wp_send_json( [ 'status' => 'ok' ] );
+        wp_send_json( $response, $response_code );
     }
 
     /**
@@ -128,7 +151,6 @@ class OEN_Webhook_Handler {
             $this->log(
                 sprintf( 'API verification failed for order #%d: %s', $order->get_id(), $e->getMessage() )
             );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Verification failed' ], 502 );
             return null;
         }
 
@@ -146,7 +168,6 @@ class OEN_Webhook_Handler {
                     $expected_id
                 )
             );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Order mismatch' ], 400 );
             return null;
         }
 
@@ -163,7 +184,6 @@ class OEN_Webhook_Handler {
                     $order_total
                 )
             );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Amount mismatch' ], 400 );
             return null;
         }
 
@@ -229,6 +249,46 @@ class OEN_Webhook_Handler {
         );
 
         $this->log( 'Payment failed for order #' . $order->get_id() . ': status=' . sanitize_text_field( $status ) );
+    }
+
+    /**
+     * Acquire a MySQL advisory lock for webhook processing.
+     *
+     * Prevents concurrent requests from processing the same order simultaneously.
+     * Lock is automatically released when the DB connection closes (safety net).
+     *
+     * @param int $order_id WooCommerce order ID.
+     * @return bool True if lock acquired, false if another request holds it.
+     */
+    private function acquire_lock( int $order_id ): bool {
+        global $wpdb;
+
+        // Non-blocking: timeout 0 means return immediately if lock is held.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $result = $wpdb->get_var(
+            $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $wpdb->prefix . 'oen_webhook_' . $order_id )
+        );
+
+        // GET_LOCK returns: 1 = acquired, 0 = held by another, NULL = error.
+        if ( null === $result ) {
+            $this->log( 'GET_LOCK returned NULL for order #' . $order_id . ' — possible DB error' );
+        }
+
+        return '1' === $result;
+    }
+
+    /**
+     * Release the MySQL advisory lock for webhook processing.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    private function release_lock( int $order_id ): void {
+        global $wpdb;
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->query(
+            $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $wpdb->prefix . 'oen_webhook_' . $order_id )
+        );
     }
 
     /**
