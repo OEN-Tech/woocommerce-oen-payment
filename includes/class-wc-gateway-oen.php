@@ -114,6 +114,14 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
             $order->save();
 
+            // CVS/ATM 需要等待客戶繳費，設為 on-hold 避免被 WooCommerce 自動取消。
+            if ( in_array( $this->payment_method_type, [ 'cvs', 'atm' ], true ) ) {
+                $order->update_status(
+                    'on-hold',
+                    __( 'Awaiting OEN off-site payment.', 'woocommerce-oen-payment' )
+                );
+            }
+
             // Build the redirect URL to OEN's hosted checkout page.
             $checkout_url = $client->get_checkout_url( $result['id'] );
 
