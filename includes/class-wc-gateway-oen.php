@@ -208,12 +208,26 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
                 'description'    => $item->get_name(),
                 'quantity'       => $item->get_quantity(),
                 'unit'           => __( 'pc', 'woocommerce-oen-payment' ),
-                'unitPrice'      => intval( $order->get_item_total( $item, false ) ),
+                'unitPrice'      => (int) round( (float) $order->get_item_total( $item, true ) ),
             ];
         }
 
+        // Include fees (e.g. surcharges) as line items.
+        foreach ( $order->get_fees() as $fee ) {
+            $fee_total = (int) round( (float) $fee->get_total() + (float) $fee->get_total_tax() );
+            if ( 0 !== $fee_total ) {
+                $details[] = [
+                    'productionCode' => 'FEE',
+                    'description'    => $fee->get_name(),
+                    'quantity'       => 1,
+                    'unit'           => __( 'set', 'woocommerce-oen-payment' ),
+                    'unitPrice'      => $fee_total,
+                ];
+            }
+        }
+
         // Include shipping as a line item if > 0.
-        $shipping_total = intval( $order->get_shipping_total() );
+        $shipping_total = (int) round( (float) $order->get_shipping_total() + (float) $order->get_shipping_tax() );
         if ( $shipping_total > 0 ) {
             $details[] = [
                 'productionCode' => 'SHIPPING',
@@ -221,6 +235,21 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
                 'quantity'       => 1,
                 'unit'           => __( 'set', 'woocommerce-oen-payment' ),
                 'unitPrice'      => $shipping_total,
+            ];
+        }
+
+        // Adjustment line item to ensure sum(unitPrice * quantity) === order total.
+        $sum         = array_sum( array_map( fn( $d ) => $d['unitPrice'] * $d['quantity'], $details ) );
+        $order_total = (int) round( (float) $order->get_total() );
+        $diff        = $order_total - $sum;
+
+        if ( 0 !== $diff ) {
+            $details[] = [
+                'productionCode' => 'ADJ',
+                'description'    => __( 'Order adjustment', 'woocommerce-oen-payment' ),
+                'quantity'       => 1,
+                'unit'           => __( 'set', 'woocommerce-oen-payment' ),
+                'unitPrice'      => $diff,
             ];
         }
 
