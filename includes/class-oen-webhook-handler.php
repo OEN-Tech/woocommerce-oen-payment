@@ -91,10 +91,39 @@ class OEN_Webhook_Handler {
                 } else {
                     $status = $transaction['status'] ?? '';
 
-                    if ( 'charged' === $status ) {
-                        $this->handle_success( $order, $transaction );
-                    } else {
-                        $this->handle_failure( $order, $transaction );
+                    switch ( $status ) {
+                        case 'charged':
+                            $this->handle_success( $order, $transaction );
+                            break;
+
+                        case 'pending':
+                        case 'created':
+                            // 中間狀態 — 不改變訂單狀態，等待後續 webhook。
+                            $this->log( 'Order #' . $order->get_id() . ' transaction status: ' . $status . ', no action taken.' );
+                            break;
+
+                        case 'expired':
+                            $order->update_status(
+                                'cancelled',
+                                sprintf(
+                                    __( 'OEN transaction expired (status: %s).', 'woocommerce-oen-payment' ),
+                                    $status
+                                )
+                            );
+                            $this->log( 'Order #' . $order->get_id() . ' cancelled due to expired transaction.' );
+                            break;
+
+                        case 'refunded':
+                            $order->update_status(
+                                'refunded',
+                                __( 'OEN transaction refunded.', 'woocommerce-oen-payment' )
+                            );
+                            $this->log( 'Order #' . $order->get_id() . ' marked as refunded.' );
+                            break;
+
+                        default:
+                            $this->handle_failure( $order, $transaction );
+                            break;
                     }
                 }
             }
