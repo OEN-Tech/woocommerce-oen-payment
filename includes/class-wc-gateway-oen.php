@@ -122,7 +122,14 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
                 'redirect' => $checkout_url,
             ];
         } catch ( \RuntimeException $e ) {
-            wc_add_notice( $e->getMessage(), 'error' );
+            wc_get_logger()->error(
+                sprintf( 'OEN checkout failed for order #%d: %s', $order_id, $e->getMessage() ),
+                [ 'source' => 'oen-payment' ]
+            );
+            wc_add_notice(
+                __( 'Payment processing failed. Please try again or contact support.', 'woocommerce-oen-payment' ),
+                'error'
+            );
             return [ 'result' => 'failure' ];
         }
     }
