@@ -103,6 +103,10 @@ class OEN_Webhook_Handler {
                             break;
 
                         case 'expired':
+                            if ( $order->has_status( [ 'processing', 'completed', 'refunded' ] ) ) {
+                                $this->log( 'Order #' . $order->get_id() . ' ignoring expired — already ' . $order->get_status() . '.' );
+                                break;
+                            }
                             $order->update_status(
                                 'cancelled',
                                 sprintf(
