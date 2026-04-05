@@ -211,13 +211,19 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             );
         }
 
-        if ( ! self::is_reusable_session_response( $session ) ) {
+        $session_state = self::classify_reusable_session_response( $session );
+
+        if ( 'terminal' === $session_state ) {
             return '';
+        }
+
+        if ( 'unsafe' === $session_state ) {
+            throw $this->get_reusable_session_verification_exception();
         }
 
         $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
         if ( '' === $response_session_id || $response_session_id !== $session_id ) {
-            return '';
+            throw $this->get_reusable_session_verification_exception();
         }
 
         $expected_order_id = sanitize_text_field(
@@ -225,13 +231,17 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
         );
         $session_order_id  = sanitize_text_field( (string) ( $session['orderId'] ?? '' ) );
 
-        if ( '' === $expected_order_id || $session_order_id !== $expected_order_id ) {
-            return '';
+        if ( '' === $expected_order_id || '' === $session_order_id || $session_order_id !== $expected_order_id ) {
+            throw $this->get_reusable_session_verification_exception();
         }
 
-        $session_amount = intval( $session['amount'] ?? 0 );
+        if ( ! array_key_exists( 'amount', $session ) || '' === sanitize_text_field( (string) $session['amount'] ) ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        $session_amount = intval( $session['amount'] );
         if ( $session_amount !== intval( $order->get_total() ) ) {
-            return '';
+            throw $this->get_reusable_session_verification_exception();
         }
 
         $checkout_url = sanitize_text_field( (string) ( $session['checkoutUrl'] ?? '' ) );
@@ -261,27 +271,50 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
      * @param array<string, mixed> $session Hosted checkout session payload.
      */
     protected static function is_reusable_session_response( array $session ): bool {
-        $status = self::normalize_session_status( $session );
-
-        if ( '' === $status ) {
-            return false;
-        }
-
-        return ! in_array(
-            $status,
-            [
-                'completed',
-                'charged',
-                'failed',
-                'expired',
-                'cancelled',
-            ],
-            true
-        );
+        return 'reusable' === self::classify_reusable_session_response( $session );
     }
 
     /**
-     * Normalize verified Hosted Checkout session status.
+     * Classify whether a fetched Hosted Checkout session is safely reusable.
+     *
+     * @return 'reusable'|'terminal'|'unsafe'
+     */
+    protected static function classify_reusable_session_response( array $session ): string {
+        $status = self::normalize_session_status( $session );
+
+        if ( '' !== $status ) {
+            return in_array(
+                $status,
+                [
+                    'completed',
+                    'charged',
+                    'failed',
+                    'expired',
+                    'cancelled',
+                ],
+                true
+            ) ? 'terminal' : 'reusable';
+        }
+
+        $lifecycle_status = self::normalize_session_lifecycle_status( $session );
+
+        if ( in_array( $lifecycle_status, [ 'failed', 'expired', 'cancelled' ], true ) ) {
+            return 'terminal';
+        }
+
+        if ( in_array( $lifecycle_status, [ 'completed', 'charged' ], true ) ) {
+            return 'unsafe';
+        }
+
+        if ( '' === $lifecycle_status ) {
+            return 'unsafe';
+        }
+
+        return 'reusable';
+    }
+
+    /**
+     * Normalize verified Hosted Checkout transaction status.
      *
      * Prefer the nested transaction status when present because it reflects the
      * authoritative payment outcome returned by the session verification API.
@@ -300,7 +333,25 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             return $status;
         }
 
+        return '';
+    }
+
+    /**
+     * Normalize the top-level Hosted Checkout lifecycle status.
+     *
+     * @param array<string, mixed> $session Hosted checkout session payload.
+     */
+    protected static function normalize_session_lifecycle_status( array $session ): string {
         return sanitize_text_field( (string) ( $session['status'] ?? '' ) );
+    }
+
+    /**
+     * Build the fail-closed exception used when a reusable session cannot be safely verified.
+     */
+    protected function get_reusable_session_verification_exception(): \RuntimeException {
+        return new \RuntimeException(
+            __( 'We could not safely verify your existing OEN checkout session. Please try again in a moment.', 'woocommerce-oen-payment' )
+        );
     }
 
     /**

@@ -402,7 +402,7 @@ function test_process_payment_reuses_existing_reusable_session(): void {
     );
 }
 
-function test_process_payment_rejects_mismatched_reusable_session_and_creates_new_attempt(): void {
+function test_process_payment_fails_closed_for_mismatched_reusable_session(): void {
     test_reset_http_stubs();
 
     $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
@@ -441,20 +441,62 @@ function test_process_payment_rejects_mismatched_reusable_session_and_creates_ne
     $result  = $gateway->process_payment( 1003 );
 
     test_assert(
-        'success' === ( $result['result'] ?? null ),
-        'process_payment() should still succeed by creating a new attempt when the stored session is not safe to reuse.'
+        'failure' === ( $result['result'] ?? null ),
+        'process_payment() should fail closed when the stored non-terminal session is not safe to reuse.'
     );
     test_assert(
-        'https://oen.tw/checkout/sess_fresh' === ( $result['redirect'] ?? null ),
-        'process_payment() should ignore a mismatched reusable session and redirect to the fresh checkout URL.'
+        ! isset( $result['redirect'] ),
+        'process_payment() should not return a fresh checkout URL when reusable session verification fails.'
     );
     test_assert(
         1 === count( $GLOBALS['test_http_get_calls'] ),
         'process_payment() should inspect the stored session before discarding it.'
     );
     test_assert(
-        1 === count( $GLOBALS['test_http_post_calls'] ),
-        'process_payment() should create a new session when the fetched session does not match the current order.'
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'process_payment() should not create a new session when the fetched non-terminal session does not match the current order.'
+    );
+    test_assert(
+        'error' === ( $GLOBALS['test_wc_notices'][0]['type'] ?? null ),
+        'process_payment() should surface the reusable-session verification failure as an error notice.'
+    );
+}
+
+function test_process_payment_fails_closed_for_ambiguous_completed_reusable_session(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1004, 2468 );
+    $order->update_meta_data( '_oen_session_id', 'sess_completed' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_completed' );
+    $GLOBALS['test_wc_orders'][1004] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_completed',
+                'status'      => 'completed',
+                'orderId'     => 'wc-order-1004',
+                'amount'      => 2468,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_completed',
+            ],
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1004 );
+
+    test_assert(
+        'failure' === ( $result['result'] ?? null ),
+        'process_payment() should fail closed when a reusable session reports only top-level completed without transaction.status.'
+    );
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'process_payment() should not create a fresh session when the existing session completion state is ambiguous.'
     );
 }
 
@@ -521,7 +563,8 @@ test_create_session_rejects_missing_session_id();
 test_create_session_uses_unique_idempotency_key_per_attempt();
 test_get_session_uses_hosted_checkout_contract();
 test_process_payment_reuses_existing_reusable_session();
-test_process_payment_rejects_mismatched_reusable_session_and_creates_new_attempt();
+test_process_payment_fails_closed_for_mismatched_reusable_session();
+test_process_payment_fails_closed_for_ambiguous_completed_reusable_session();
 test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid();
 
 echo "API client smoke harness passed.\n";

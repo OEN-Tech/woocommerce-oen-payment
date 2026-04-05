@@ -214,7 +214,7 @@ class OEN_Webhook_Handler {
             return $status;
         }
 
-        return sanitize_text_field( (string) ( $session['status'] ?? '' ) );
+        return '';
     }
 
     /**
@@ -483,22 +483,31 @@ class OEN_Webhook_Handler {
             return false;
         }
 
-        if ( array_key_exists( 'amount', $verified_payment ) && '' !== (string) $verified_payment['amount'] ) {
-            $api_amount  = intval( $verified_payment['amount'] );
-            $order_total = intval( $order->get_total() );
+        if ( ! array_key_exists( 'amount', $verified_payment ) || '' === sanitize_text_field( (string) $verified_payment['amount'] ) ) {
+            $this->log(
+                sprintf(
+                    'Missing amount during %1$s verification for order #%2$d',
+                    $source,
+                    $order->get_id()
+                )
+            );
+            return false;
+        }
 
-            if ( $api_amount !== $order_total ) {
-                $this->log(
-                    sprintf(
-                        'Amount mismatch during %1$s verification for order #%2$d: api=%3$d, order=%4$d',
-                        $source,
-                        $order->get_id(),
-                        $api_amount,
-                        $order_total
-                    )
-                );
-                return false;
-            }
+        $api_amount  = intval( $verified_payment['amount'] );
+        $order_total = intval( $order->get_total() );
+
+        if ( $api_amount !== $order_total ) {
+            $this->log(
+                sprintf(
+                    'Amount mismatch during %1$s verification for order #%2$d: api=%3$d, order=%4$d',
+                    $source,
+                    $order->get_id(),
+                    $api_amount,
+                    $order_total
+                )
+            );
+            return false;
         }
 
         return true;

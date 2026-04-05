@@ -22,7 +22,56 @@ if ( ! function_exists( 'wp_strip_all_tags' ) ) {
     }
 }
 
+if ( ! class_exists( 'WC_Order', false ) ) {
+    class WC_Order {
+        private int $id;
+        private int $total;
+        private array $meta = [];
+
+        public function __construct( int $id, int $total = 0 ) {
+            $this->id    = $id;
+            $this->total = $total;
+        }
+
+        public function get_id(): int {
+            return $this->id;
+        }
+
+        public function get_total(): int {
+            return $this->total;
+        }
+
+        public function get_meta( string $key ): mixed {
+            return $this->meta[ $key ] ?? '';
+        }
+
+        public function update_meta_data( string $key, mixed $value ): void {
+            $this->meta[ $key ] = $value;
+        }
+    }
+}
+
+if ( ! function_exists( 'wc_get_logger' ) ) {
+    function wc_get_logger(): object {
+        return new class() {
+            public function info( string $message, array $context = [] ): void {}
+
+            public function debug( string $message, array $context = [] ): void {}
+        };
+    }
+}
+
 require_once __DIR__ . '/../includes/class-oen-webhook-handler.php';
+
+if ( ! class_exists( 'Testable_OEN_Webhook_Handler', false ) ) {
+    class Testable_OEN_Webhook_Handler extends OEN_Webhook_Handler {
+        public function validate_verified_payment_for_test( array $verified_payment, WC_Order $order, string $source ): bool {
+            $method = new ReflectionMethod( OEN_Webhook_Handler::class, 'validate_verified_payment' );
+
+            return $method->invoke( $this, $verified_payment, $order, $source );
+        }
+    }
+}
 
 function test_parser_verifies_signature_and_returns_event_type_and_nested_event_data(): void {
     $secret    = 'whsec_test_secret';
@@ -222,6 +271,45 @@ function test_handler_maps_hosted_checkout_event_names_and_statuses(): void {
     );
 }
 
+function test_handler_ignores_top_level_completed_session_without_transaction_status(): void {
+    $verified_status = OEN_Webhook_Handler::normalize_verified_session_status(
+        [
+            'id'     => 'sess_ambiguous',
+            'status' => 'completed',
+        ]
+    );
+    $resolution      = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.completed', $verified_status );
+
+    test_assert(
+        '' === $verified_status,
+        'Verified session status should stay empty when only the top-level lifecycle status is completed.'
+    );
+    test_assert(
+        'ignore' === $resolution,
+        'Top-level completed session status without authoritative transaction.status must not resolve to success.'
+    );
+}
+
+function test_handler_requires_amount_for_verified_session_binding(): void {
+    $handler = new Testable_OEN_Webhook_Handler();
+    $order   = new WC_Order( 2001, 1234 );
+    $order->update_meta_data( '_oen_order_id', 'wc-order-2001' );
+
+    $is_valid = $handler->validate_verified_payment_for_test(
+        [
+            'orderId' => 'wc-order-2001',
+            'status'  => 'charged',
+        ],
+        $order,
+        'session'
+    );
+
+    test_assert(
+        false === $is_valid,
+        'Session verification should fail closed when amount is missing.'
+    );
+}
+
 test_parser_verifies_signature_and_returns_event_type_and_nested_event_data();
 test_parser_rejects_invalid_signature();
 test_parser_rejects_stale_signature_timestamp();
@@ -230,5 +318,7 @@ test_handler_allows_session_only_verified_attempt_when_session_matches();
 test_handler_prefers_matching_session_id_over_older_transaction_hid();
 test_handler_rejects_session_only_attempt_without_stored_session_or_matching_transaction_hid();
 test_handler_maps_hosted_checkout_event_names_and_statuses();
+test_handler_ignores_top_level_completed_session_without_transaction_status();
+test_handler_requires_amount_for_verified_session_binding();
 
 echo "Webhook parser smoke harness passed.\n";
