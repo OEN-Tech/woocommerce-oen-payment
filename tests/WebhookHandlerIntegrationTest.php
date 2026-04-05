@@ -91,12 +91,18 @@ function integration_stop_server( array $server ): void {
     }
 }
 
-function integration_post_webhook( int $port, string $case, array $payload ): array {
+function integration_post_webhook( int $port, string $case, array $payload, array $headers = [] ): array {
+    $header_lines = [ 'Content-Type: application/json' ];
+
+    foreach ( $headers as $name => $value ) {
+        $header_lines[] = $name . ': ' . $value;
+    }
+
     $context = stream_context_create( [
         'http' => [
             'method'        => 'POST',
             'ignore_errors' => true,
-            'header'        => "Content-Type: application/json\r\n",
+            'header'        => implode( "\r\n", $header_lines ) . "\r\n",
             'content'       => wp_json_encode( $payload ),
             'timeout'       => 5,
         ],
@@ -125,6 +131,17 @@ function integration_post_webhook( int $port, string $case, array $payload ): ar
         'status_code' => $status_code,
         'body'        => $decoded,
     ];
+}
+
+function integration_build_signature_header( string $secret, array $payload, ?int $timestamp = null ): string {
+    $timestamp = $timestamp ?? time();
+    $raw_body  = wp_json_encode( $payload );
+
+    test_assert( is_string( $raw_body ), 'Webhook payload should encode to JSON for signature calculation.' );
+
+    $signature = hash_hmac( 'sha256', $timestamp . '.' . $raw_body, $secret );
+
+    return 't=' . $timestamp . ',v1=' . $signature;
 }
 
 function test_handle_ignores_completed_session_without_authoritative_transaction_status(): void {
@@ -203,7 +220,85 @@ function test_handle_fails_closed_when_verified_session_amount_is_missing(): voi
     }
 }
 
+function test_handle_accepts_valid_signature_and_still_ignores_ambiguous_completed_session(): void {
+    $server  = integration_start_server();
+    $payload = [
+        'type' => 'checkout_session.completed',
+        'data' => [
+            'id'      => 'sess_ambiguous',
+            'orderId' => 'wc-order-2001',
+            'status'  => 'completed',
+        ],
+    ];
+
+    try {
+        $result = integration_post_webhook(
+            $server['port'],
+            'signed_ambiguous_completed',
+            $payload,
+            [
+                'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ),
+            ]
+        );
+
+        test_assert(
+            200 === $result['status_code'],
+            'Valid signed ambiguous sessions should still be safely ignored with HTTP 200.'
+        );
+        test_assert(
+            ( $result['body']['payload']['message'] ?? null ) === 'Event ignored',
+            'Valid signed ambiguous sessions should still be ignored rather than marked paid.'
+        );
+        test_assert(
+            false === ( $result['body']['order']['paid'] ?? true ),
+            'Order must remain unpaid for valid signed ambiguous sessions.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
+function test_handle_rejects_invalid_signature_before_processing_webhook(): void {
+    $server  = integration_start_server();
+    $payload = [
+        'type' => 'checkout_session.completed',
+        'data' => [
+            'id'      => 'sess_ambiguous',
+            'orderId' => 'wc-order-2001',
+            'status'  => 'completed',
+        ],
+    ];
+
+    try {
+        $result = integration_post_webhook(
+            $server['port'],
+            'signed_ambiguous_completed',
+            $payload,
+            [
+                'OenPay-Signature' => 't=' . time() . ',v1=invalidsignature',
+            ]
+        );
+
+        test_assert(
+            403 === $result['status_code'],
+            'Invalid signatures should be rejected before webhook processing.'
+        );
+        test_assert(
+            ( $result['body']['payload']['message'] ?? null ) === 'Invalid webhook signature',
+            'Invalid signatures should surface the parser rejection message.'
+        );
+        test_assert(
+            false === ( $result['body']['order']['paid'] ?? true ),
+            'Order must remain unpaid when signature verification fails.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
 test_handle_ignores_completed_session_without_authoritative_transaction_status();
 test_handle_fails_closed_when_verified_session_amount_is_missing();
+test_handle_accepts_valid_signature_and_still_ignores_ambiguous_completed_session();
+test_handle_rejects_invalid_signature_before_processing_webhook();
 
 echo "Webhook handler integration harness passed.\n";

@@ -41,6 +41,10 @@ function sanitize_text_field( mixed $value ): string {
 }
 
 function get_option( string $name, mixed $default = false ): mixed {
+    if ( 'oen_webhook_secret' === $name && str_starts_with( (string) ( $GLOBALS['test_webhook_case'] ?? '' ), 'signed_' ) ) {
+        return 'whsec_integration_secret';
+    }
+
     return $default;
 }
 
@@ -126,6 +130,7 @@ $GLOBALS['test_order_id']      = 2001;
 $GLOBALS['test_order_lookup']  = 'wc-order-2001';
 $GLOBALS['test_order_session'] = match ( $test_case ) {
     'ambiguous_completed' => 'sess_ambiguous',
+    'signed_ambiguous_completed' => 'sess_ambiguous',
     'missing_amount' => 'sess_missing_amount',
     default => 'sess_default',
 };
@@ -189,6 +194,12 @@ if ( ! class_exists( 'OEN_API_Client', false ) ) {
         public function get_session( string $session_id ): array {
             return match ( $GLOBALS['test_webhook_case'] ?? '' ) {
                 'ambiguous_completed' => [
+                    'id'      => $session_id,
+                    'orderId' => $GLOBALS['test_order_lookup'],
+                    'status'  => 'completed',
+                    'amount'  => 1234,
+                ],
+                'signed_ambiguous_completed' => [
                     'id'      => $session_id,
                     'orderId' => $GLOBALS['test_order_lookup'],
                     'status'  => 'completed',
