@@ -7,10 +7,14 @@ defined( 'ABSPATH' ) || exit;
  */
 class OEN_Webhook_Parser {
 
-    private string $webhook_secret;
+    private const DEFAULT_TIMESTAMP_TOLERANCE = 300;
 
-    public function __construct( string $webhook_secret = '' ) {
-        $this->webhook_secret = $webhook_secret;
+    private string $webhook_secret;
+    private int $timestamp_tolerance;
+
+    public function __construct( string $webhook_secret = '', int $timestamp_tolerance = self::DEFAULT_TIMESTAMP_TOLERANCE ) {
+        $this->webhook_secret      = $webhook_secret;
+        $this->timestamp_tolerance = max( 0, $timestamp_tolerance );
     }
 
     /**
@@ -63,6 +67,7 @@ class OEN_Webhook_Parser {
         $signature_fields = $this->parse_signature_header( $signature_header );
         $timestamp        = $signature_fields['t'];
         $signatures       = $signature_fields['v1'];
+        $this->assert_fresh_timestamp( (int) $timestamp );
         $signed_payload   = $timestamp . '.' . $raw_body;
         $expected         = hash_hmac( 'sha256', $signed_payload, $this->webhook_secret );
 
@@ -73,6 +78,17 @@ class OEN_Webhook_Parser {
         }
 
         throw new \RuntimeException( 'Invalid webhook signature', 403 );
+    }
+
+    /**
+     * Reject webhook signatures whose timestamp falls outside the allowed tolerance.
+     *
+     * @param int $timestamp Timestamp from the OenPay-Signature header.
+     */
+    private function assert_fresh_timestamp( int $timestamp ): void {
+        if ( abs( time() - $timestamp ) > $this->timestamp_tolerance ) {
+            throw new \RuntimeException( 'Expired webhook signature timestamp', 403 );
+        }
     }
 
     /**

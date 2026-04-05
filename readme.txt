@@ -39,16 +39,19 @@ Features:
 
 Hosted Checkout Session API:
 
-* `POST /hosted-checkout/v1/sessions` creates a checkout session and returns `checkoutUrl`
+* `POST /hosted-checkout/v1/sessions` creates a checkout session and returns a non-empty `id` plus `checkoutUrl`
 * `GET /hosted-checkout/v1/sessions/{sessionId}` fetches a single session
 * Use `Authorization: Bearer <Secret Key>` for Hosted Checkout Session API calls
+* If the create response omits the session `id`, checkout fails instead of storing an empty `_oen_session_id`
 
 Webhook contract:
 
 * Webhooks send `OenPay-Signature: t=...,v1=...`
 * The signature is an HMAC-SHA256 over `{timestamp}.{raw_body}` using the configured Webhook Secret
+* The `t` timestamp must be within the default 300-second tolerance window
 * Webhook payloads arrive as an event envelope with the event `type` plus business payload nested under `data`
-* The webhook handler only updates orders when the event type and verified transaction status agree on the same terminal success/failure outcome
+* The webhook handler verifies with `transactionHid` when present, or falls back to `GET /hosted-checkout/v1/sessions/{sessionId}` when only `sessionId` is available
+* The webhook handler only updates orders when the event type and verified session/transaction status agree on the same terminal success/failure outcome
 * If the order stores `_oen_session_id`, any webhook missing that `sessionId` or carrying a different one is treated as stale and safely ignored
 
 Example webhook envelope:

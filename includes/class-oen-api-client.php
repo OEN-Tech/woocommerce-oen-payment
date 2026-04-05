@@ -43,7 +43,15 @@ class OEN_API_Client {
                 'timeout' => 30,
             ]
         );
-        return $this->parse_response( $response );
+        $data = $this->parse_response( $response );
+
+        if ( empty( $data['id'] ) || ! is_string( $data['id'] ) ) {
+            throw new \RuntimeException(
+                __( 'OEN Payment API did not return a session id.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        return $data;
     }
 
     public function get_transaction( string $transaction_id ): array {

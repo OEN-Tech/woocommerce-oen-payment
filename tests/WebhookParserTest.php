@@ -26,7 +26,7 @@ require_once __DIR__ . '/../includes/class-oen-webhook-handler.php';
 
 function test_parser_verifies_signature_and_returns_event_type_and_nested_event_data(): void {
     $secret    = 'whsec_test_secret';
-    $timestamp = '1712345678';
+    $timestamp = (string) time();
     $raw_body  = wp_json_encode( [
         'id'   => 'evt_test_123',
         'type' => 'payment.succeeded',
@@ -77,7 +77,7 @@ function test_parser_verifies_signature_and_returns_event_type_and_nested_event_
 
 function test_parser_rejects_invalid_signature(): void {
     $secret    = 'whsec_test_secret';
-    $timestamp = '1712345678';
+    $timestamp = (string) time();
     $raw_body  = wp_json_encode( [
         'id'   => 'evt_test_456',
         'type' => 'payment.failed',
@@ -106,6 +106,38 @@ function test_parser_rejects_invalid_signature(): void {
     }
 }
 
+function test_parser_rejects_stale_signature_timestamp(): void {
+    $secret    = 'whsec_test_secret';
+    $timestamp = (string) ( time() - 301 );
+    $raw_body  = wp_json_encode( [
+        'id'   => 'evt_test_stale',
+        'type' => 'payment.succeeded',
+        'data' => [
+            'sessionId' => 'sess_123',
+            'orderId'   => 'wc_1003',
+        ],
+    ] );
+
+    test_assert( is_string( $raw_body ), 'Webhook body should encode to JSON.' );
+
+    $signature = hash_hmac( 'sha256', $timestamp . '.' . $raw_body, $secret );
+    $parser    = new OEN_Webhook_Parser( $secret );
+
+    try {
+        $parser->parse( $raw_body, 't=' . $timestamp . ',v1=' . $signature );
+        throw new RuntimeException( 'Parser should reject stale webhook timestamps.' );
+    } catch ( RuntimeException $exception ) {
+        test_assert(
+            'Expired webhook signature timestamp' === $exception->getMessage(),
+            'Parser should reject stale webhook timestamps.'
+        );
+        test_assert(
+            403 === $exception->getCode(),
+            'Stale signatures should return HTTP 403 semantics.'
+        );
+    }
+}
+
 function test_handler_treats_missing_session_id_as_stale_when_order_has_stored_session(): void {
     $reason = OEN_Webhook_Handler::detect_attempt_mismatch(
         'sess_current',
@@ -121,6 +153,21 @@ function test_handler_treats_missing_session_id_as_stale_when_order_has_stored_s
     );
 }
 
+function test_handler_allows_session_only_verified_attempt_when_session_matches(): void {
+    $reason = OEN_Webhook_Handler::detect_attempt_mismatch(
+        'sess_current',
+        'txn_current',
+        [
+            'sessionId' => 'sess_current',
+        ]
+    );
+
+    test_assert(
+        null === $reason,
+        'Session-based verification should still be usable when the verified payload matches the current session even without transactionHid.'
+    );
+}
+
 function test_handler_does_not_fail_order_when_failure_event_has_non_failure_verified_status(): void {
     $resolution = OEN_Webhook_Handler::resolve_event_action( 'payment.failed', 'charged' );
 
@@ -132,7 +179,9 @@ function test_handler_does_not_fail_order_when_failure_event_has_non_failure_ver
 
 test_parser_verifies_signature_and_returns_event_type_and_nested_event_data();
 test_parser_rejects_invalid_signature();
+test_parser_rejects_stale_signature_timestamp();
 test_handler_treats_missing_session_id_as_stale_when_order_has_stored_session();
+test_handler_allows_session_only_verified_attempt_when_session_matches();
 test_handler_does_not_fail_order_when_failure_event_has_non_failure_verified_status();
 
 echo "Webhook parser smoke harness passed.\n";

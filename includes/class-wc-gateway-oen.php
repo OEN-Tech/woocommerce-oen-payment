@@ -105,11 +105,18 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             $client = OEN_API_Client::from_settings();
             $params = $this->build_checkout_params( $order );
             $result = $client->create_session( $params );
+            $session_id = sanitize_text_field( (string) ( $result['id'] ?? '' ) );
+
+            if ( '' === $session_id ) {
+                throw new \RuntimeException(
+                    __( 'OEN Payment API did not return a session id.', 'woocommerce-oen-payment' )
+                );
+            }
 
             // Store OEN session and transaction references as order meta.
             $oen_order_id = $params['orderId'];
             $order->update_meta_data( '_oen_order_id', $oen_order_id );
-            $order->update_meta_data( '_oen_session_id', $result['id'] ?? '' );
+            $order->update_meta_data( '_oen_session_id', $session_id );
             if ( ! empty( $result['transactionId'] ) ) {
                 $order->update_meta_data( '_oen_transaction_id', $result['transactionId'] );
             } else {

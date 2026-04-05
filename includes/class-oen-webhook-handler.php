@@ -53,11 +53,12 @@ class OEN_Webhook_Handler {
         $payload['paymentMethod']   = sanitize_text_field( $event_data['paymentMethod'] ?? '' );
         $payload['paymentProvider'] = sanitize_text_field( $event_data['paymentProvider'] ?? '' );
 
-        // Server-side verification requires transactionHid.
         $transaction_hid = $payload['transactionHid'];
-        if ( empty( $transaction_hid ) ) {
-            $this->log( 'Missing transactionHid in webhook payload', $raw_body );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Missing transaction ID' ], 400 );
+        $session_id      = $payload['sessionId'];
+
+        if ( empty( $transaction_hid ) && empty( $session_id ) ) {
+            $this->log( 'Missing transactionHid and sessionId in webhook payload', $raw_body );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Missing payment reference' ], 400 );
             return;
         }
 
@@ -96,26 +97,29 @@ class OEN_Webhook_Handler {
             } elseif ( ! $this->is_current_attempt( $order, $payload ) ) {
                 $response = [ 'status' => 'ok', 'message' => 'Stale event ignored' ];
             } else {
-                // Step 2: Server-side verification — query OEN API for authoritative transaction state.
-                $transaction = $this->verify_transaction( $transaction_hid, $order );
-                if ( null === $transaction ) {
-                    // verify_transaction already logged the error.
+                // Step 2: Server-side verification — query OEN API for authoritative state.
+                $verified_payment = ! empty( $transaction_hid )
+                    ? $this->verify_transaction( $transaction_hid, $order )
+                    : $this->verify_session( $session_id, $order );
+
+                if ( null === $verified_payment ) {
+                    // Verification helper already logged the error.
                     $response      = [ 'status' => 'error', 'message' => 'Verification failed' ];
                     $response_code = 502;
-                } elseif ( ! $this->is_current_attempt( $order, $transaction ) ) {
+                } elseif ( ! $this->is_current_attempt( $order, $verified_payment ) ) {
                     $response = [ 'status' => 'ok', 'message' => 'Stale event ignored' ];
                 } else {
                     $resolution = self::resolve_event_action(
                         $payload['type'],
-                        sanitize_text_field( (string) ( $transaction['status'] ?? '' ) )
+                        sanitize_text_field( (string) ( $verified_payment['status'] ?? '' ) )
                     );
 
                     if ( 'success' === $resolution ) {
-                        $this->handle_success( $order, $transaction );
+                        $this->handle_success( $order, $verified_payment );
                     } elseif ( 'failure' === $resolution ) {
-                        $this->handle_failure( $order, $transaction );
+                        $this->handle_failure( $order, $verified_payment );
                     } else {
-                        $this->log_event_status_mismatch( $order, $payload['type'], $transaction );
+                        $this->log_event_status_mismatch( $order, $payload['type'], $verified_payment );
                         $response = [ 'status' => 'ok', 'message' => 'Event ignored' ];
                     }
                 }
@@ -355,40 +359,113 @@ class OEN_Webhook_Handler {
             return null;
         }
 
-        // Verify the transaction belongs to this order (prevent cross-order replay).
-        // Compare against stored meta, not webhook payload (which is attacker-controlled).
-        $api_order_id = $transaction['orderId'] ?? '';
-        $expected_id  = $order->get_meta( '_oen_order_id' );
-
-        if ( $api_order_id !== $expected_id ) {
-            $this->log(
-                sprintf(
-                    'Order ID mismatch for order #%d: api=%s, expected=%s',
-                    $order->get_id(),
-                    sanitize_text_field( $api_order_id ),
-                    $expected_id
-                )
-            );
-            return null;
-        }
-
-        // Verify amount matches order total (OEN API returns integer TWD amount).
-        $api_amount  = intval( $transaction['amount'] ?? 0 );
-        $order_total = intval( $order->get_total() );
-
-        if ( $api_amount !== $order_total ) {
-            $this->log(
-                sprintf(
-                    'Amount mismatch for order #%d: api=%d, order=%d',
-                    $order->get_id(),
-                    $api_amount,
-                    $order_total
-                )
-            );
+        if ( ! $this->validate_verified_payment( $transaction, $order, 'transaction' ) ) {
             return null;
         }
 
         return $transaction;
+    }
+
+    /**
+     * Verify a hosted checkout session via the OEN API and normalize it into
+     * the same authoritative payment shape used by transaction verification.
+     *
+     * @param string    $session_id The OEN hosted checkout session ID.
+     * @param \WC_Order $order      The WooCommerce order.
+     * @return array|null Verified payment data, or null on failure.
+     */
+    private function verify_session( string $session_id, \WC_Order $order ): ?array {
+        try {
+            $api     = OEN_API_Client::from_settings();
+            $session = $api->get_session( $session_id );
+        } catch ( \Throwable $e ) {
+            $this->log(
+                sprintf( 'Session verification failed for order #%d: %s', $order->get_id(), $e->getMessage() )
+            );
+            return null;
+        }
+
+        $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
+        if ( '' !== $response_session_id && $response_session_id !== $session_id ) {
+            $this->log(
+                sprintf(
+                    'Session ID mismatch for order #%d: api=%s, expected=%s',
+                    $order->get_id(),
+                    $response_session_id,
+                    $session_id
+                )
+            );
+            return null;
+        }
+
+        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
+        $payment_info = [];
+        if ( is_array( $transaction['paymentInfo'] ?? null ) ) {
+            $payment_info = $transaction['paymentInfo'];
+        } elseif ( is_array( $session['paymentInfo'] ?? null ) ) {
+            $payment_info = $session['paymentInfo'];
+        }
+
+        $verified_payment = [
+            'sessionId'      => '' !== $response_session_id ? $response_session_id : $session_id,
+            'transactionHid' => sanitize_text_field( (string) ( $transaction['transactionHid'] ?? $session['transactionHid'] ?? '' ) ),
+            'transactionId'  => sanitize_text_field( (string) ( $transaction['transactionId'] ?? $session['transactionId'] ?? $transaction['id'] ?? '' ) ),
+            'orderId'        => sanitize_text_field( (string) ( $session['orderId'] ?? $transaction['orderId'] ?? '' ) ),
+            'status'         => sanitize_text_field( (string) ( $transaction['status'] ?? $session['status'] ?? '' ) ),
+            'amount'         => $transaction['amount'] ?? $session['amount'] ?? null,
+            'paymentInfo'    => $payment_info,
+        ];
+
+        if ( ! $this->validate_verified_payment( $verified_payment, $order, 'session' ) ) {
+            return null;
+        }
+
+        return $verified_payment;
+    }
+
+    /**
+     * Validate that verified payment data is still bound to the current order.
+     *
+     * @param array<string, mixed> $verified_payment Verified payment data from OEN.
+     * @param \WC_Order            $order            The WooCommerce order.
+     * @param string               $source           Verification source label for logs.
+     */
+    private function validate_verified_payment( array $verified_payment, \WC_Order $order, string $source ): bool {
+        $api_order_id = sanitize_text_field( (string) ( $verified_payment['orderId'] ?? '' ) );
+        $expected_id  = sanitize_text_field( (string) $order->get_meta( '_oen_order_id' ) );
+
+        if ( '' === $api_order_id || $api_order_id !== $expected_id ) {
+            $this->log(
+                sprintf(
+                    'Order ID mismatch during %1$s verification for order #%2$d: api=%3$s, expected=%4$s',
+                    $source,
+                    $order->get_id(),
+                    $api_order_id ?: 'missing',
+                    $expected_id
+                )
+            );
+            return false;
+        }
+
+        if ( array_key_exists( 'amount', $verified_payment ) && '' !== (string) $verified_payment['amount'] ) {
+            $api_amount  = intval( $verified_payment['amount'] );
+            $order_total = intval( $order->get_total() );
+
+            if ( $api_amount !== $order_total ) {
+                $this->log(
+                    sprintf(
+                        'Amount mismatch during %1$s verification for order #%2$d: api=%3$d, order=%4$d',
+                        $source,
+                        $order->get_id(),
+                        $api_amount,
+                        $order_total
+                    )
+                );
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

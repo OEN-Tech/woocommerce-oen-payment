@@ -22,6 +22,7 @@ function test_create_session_uses_hosted_checkout_contract(): void {
         'body'     => wp_json_encode( [
             'code' => 'S0000',
             'data' => [
+                'id'          => 'sess_123',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_123',
             ],
         ] ),
@@ -68,9 +69,42 @@ function test_create_session_uses_hosted_checkout_contract(): void {
         'POST payload should include merchantId when the contract still requires it.'
     );
     test_assert(
+        ( $result['id'] ?? null ) === 'sess_123',
+        'create_session() should return a non-empty session id because the gateway depends on it for stale-attempt protection.'
+    );
+    test_assert(
         ( $result['checkoutUrl'] ?? null ) === 'https://oen.tw/checkout/sess_123',
         'create_session() should return checkoutUrl.'
     );
+}
+
+function test_create_session_rejects_missing_session_id(): void {
+    test_reset_http_stubs();
+
+    $client = new OEN_API_Client( 'merchant-123', 'sk_test_secret' );
+
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_missing',
+            ],
+        ] ),
+    ];
+
+    try {
+        $client->create_session( [
+            'amount'   => 1234,
+            'currency' => 'TWD',
+        ] );
+        throw new RuntimeException( 'create_session() should reject Hosted Checkout responses that omit session id.' );
+    } catch ( RuntimeException $exception ) {
+        test_assert(
+            'OEN Payment API did not return a session id.' === $exception->getMessage(),
+            'Hosted Checkout create responses must include a non-empty session id.'
+        );
+    }
 }
 
 function test_create_session_uses_unique_idempotency_key_per_attempt(): void {
@@ -83,6 +117,7 @@ function test_create_session_uses_unique_idempotency_key_per_attempt(): void {
         'body'     => wp_json_encode( [
             'code' => 'S0000',
             'data' => [
+                'id'          => 'sess_123',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_123',
             ],
         ] ),
@@ -92,6 +127,7 @@ function test_create_session_uses_unique_idempotency_key_per_attempt(): void {
         'body'     => wp_json_encode( [
             'code' => 'S0000',
             'data' => [
+                'id'          => 'sess_456',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_456',
             ],
         ] ),
@@ -157,6 +193,7 @@ function test_get_session_uses_hosted_checkout_contract(): void {
 }
 
 test_create_session_uses_hosted_checkout_contract();
+test_create_session_rejects_missing_session_id();
 test_create_session_uses_unique_idempotency_key_per_attempt();
 test_get_session_uses_hosted_checkout_contract();
 
