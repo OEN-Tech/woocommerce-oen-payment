@@ -103,9 +103,22 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
 
         try {
             $client = OEN_API_Client::from_settings();
+
+            if ( ! $order->is_paid() ) {
+                $reusable_checkout_url = $this->get_reusable_checkout_url( $order, $client );
+
+                if ( '' !== $reusable_checkout_url ) {
+                    return [
+                        'result'   => 'success',
+                        'redirect' => $reusable_checkout_url,
+                    ];
+                }
+            }
+
             $params = $this->build_checkout_params( $order );
             $result = $client->create_session( $params );
             $session_id = sanitize_text_field( (string) ( $result['id'] ?? '' ) );
+            $checkout_url = sanitize_text_field( (string) ( $result['checkoutUrl'] ?? '' ) );
 
             if ( '' === $session_id ) {
                 throw new \RuntimeException(
@@ -113,10 +126,17 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
                 );
             }
 
+            if ( '' === $checkout_url ) {
+                throw new \RuntimeException(
+                    __( 'OEN Payment API did not return a checkout URL.', 'woocommerce-oen-payment' )
+                );
+            }
+
             // Store OEN session and transaction references as order meta.
             $oen_order_id = $params['orderId'];
             $order->update_meta_data( '_oen_order_id', $oen_order_id );
             $order->update_meta_data( '_oen_session_id', $session_id );
+            $order->update_meta_data( '_oen_checkout_url', $checkout_url );
             if ( ! empty( $result['transactionId'] ) ) {
                 $order->update_meta_data( '_oen_transaction_id', $result['transactionId'] );
             } else {
@@ -124,17 +144,11 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             }
             if ( ! empty( $result['transactionHid'] ) ) {
                 $order->update_meta_data( '_oen_transaction_hid', $result['transactionHid'] );
+            } else {
+                $order->delete_meta_data( '_oen_transaction_hid' );
             }
             $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
             $order->save();
-
-            $checkout_url = $result['checkoutUrl'] ?? '';
-
-            if ( empty( $checkout_url ) ) {
-                throw new \RuntimeException(
-                    __( 'OEN Payment API did not return a checkout URL.', 'woocommerce-oen-payment' )
-                );
-            }
 
             return [
                 'result'   => 'success',
@@ -144,6 +158,72 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             wc_add_notice( $e->getMessage(), 'error' );
             return [ 'result' => 'failure' ];
         }
+    }
+
+    /**
+     * Reuse the current hosted checkout attempt when the order already has an
+     * active session and its checkout URL is still usable.
+     *
+     * @param \WC_Order       $order  WooCommerce order.
+     * @param OEN_API_Client  $client API client.
+     * @return string Reusable checkout URL, or empty string when a fresh attempt is needed.
+     */
+    protected function get_reusable_checkout_url( \WC_Order $order, OEN_API_Client $client ): string {
+        $session_id = sanitize_text_field( (string) $order->get_meta( '_oen_session_id' ) );
+
+        if ( '' === $session_id ) {
+            return '';
+        }
+
+        try {
+            $session = $client->get_session( $session_id );
+        } catch ( \Throwable $exception ) {
+            return '';
+        }
+
+        if ( ! self::is_reusable_session_response( $session ) ) {
+            return '';
+        }
+
+        $checkout_url = sanitize_text_field( (string) $order->get_meta( '_oen_checkout_url' ) );
+
+        if ( '' === $checkout_url ) {
+            $checkout_url = sanitize_text_field( (string) ( $session['checkoutUrl'] ?? '' ) );
+
+            if ( '' !== $checkout_url ) {
+                $order->update_meta_data( '_oen_checkout_url', $checkout_url );
+                $order->save();
+            }
+        }
+
+        return $checkout_url;
+    }
+
+    /**
+     * Treat non-terminal hosted checkout session states as reusable.
+     *
+     * @param array<string, mixed> $session Hosted checkout session payload.
+     */
+    protected static function is_reusable_session_response( array $session ): bool {
+        $status = sanitize_text_field(
+            (string) ( $session['status'] ?? $session['transaction']['status'] ?? '' )
+        );
+
+        if ( '' === $status ) {
+            return false;
+        }
+
+        return ! in_array(
+            $status,
+            [
+                'completed',
+                'charged',
+                'failed',
+                'expired',
+                'cancelled',
+            ],
+            true
+        );
     }
 
     /**

@@ -28,6 +28,7 @@ Features:
 * Sandbox/production environment switching
 * Traditional Chinese (zh_TW) and English language support
 * WooCommerce HPOS compatible
+* Reuses an active Hosted Checkout session for repeated unpaid checkout attempts
 
 == Installation ==
 
@@ -44,6 +45,8 @@ Hosted Checkout Session API:
 * Use `Authorization: Bearer <Secret Key>` for Hosted Checkout Session API calls
 * The v1 secret-key contract does not require `merchantId`; the plugin sends `successUrl`, `failureUrl`, and `cancelUrl` instead
 * If the create response omits the session `id`, checkout fails instead of storing an empty `_oen_session_id`
+* If the same unpaid order re-enters checkout, the plugin first verifies the stored `_oen_session_id` with `GET /hosted-checkout/v1/sessions/{sessionId}` and reuses the saved `_oen_checkout_url` while that session is still in flight
+* A fresh session is created only after the previous one is in a terminal state such as `completed`, `charged`, `failed`, `expired`, or `cancelled`
 
 Webhook contract:
 

@@ -14,6 +14,7 @@
 - 支援測試環境（sandbox）/ 正式環境切換
 - 支援繁體中文（zh_TW）及英文語系
 - 相容 WooCommerce HPOS（高效能訂單儲存）
+- 未付款訂單重複進入結帳時，會重用仍有效的 Hosted Checkout session，避免誤開多個付款 attempt
 
 ## 系統需求
 
@@ -59,7 +60,7 @@
 
 `Authorization` header 應使用 `Bearer <Secret Key>`。
 
-建立 session 時不需要額外注入 `merchantId`；外掛會送出 `successUrl`、`failureUrl` 與 `cancelUrl`（返回購物車），再把回傳的 `id` 視為必要欄位。若 OEN API 未回傳非空 session id，結帳流程會直接失敗，避免將空的 `_oen_session_id` 寫入訂單後關閉 stale-attempt 保護。
+建立 session 時不需要額外注入 `merchantId`；外掛會送出 `successUrl`、`failureUrl` 與 `cancelUrl`（返回購物車），再把回傳的 `id` 視為必要欄位。若 OEN API 未回傳非空 session id，結帳流程會直接失敗，避免將空的 `_oen_session_id` 寫入訂單後關閉 stale-attempt 保護。若同一張未付款訂單再次觸發 `process_payment()`，外掛會先用既有 `_oen_session_id` 呼叫 `GET /hosted-checkout/v1/sessions/{sessionId}`；只要該 session 仍在進行中，就會直接重導回已儲存的 `_oen_checkout_url`，只有在先前 session 已進入 `completed`、`charged`、`failed`、`expired`、`cancelled` 等不可重用狀態時才建立新的 attempt。
 
 ### Webhook Signature 與 Event Envelope
 
@@ -120,6 +121,7 @@ Integrates OEN Payment (應援科技) with WooCommerce, enabling merchants to ac
 - Sandbox/production environment switching
 - Traditional Chinese (zh_TW) and English language support
 - WooCommerce HPOS compatible
+- Reuses an in-flight Hosted Checkout session for repeated unpaid checkout attempts instead of blindly creating duplicates
 
 ## Requirements
 
@@ -165,7 +167,7 @@ The plugin uses the OEN Hosted Checkout Session API:
 
 Send `Authorization: Bearer <Secret Key>` when calling these endpoints.
 
-The plugin does not inject `merchantId` for the v1 secret-key contract. It sends `successUrl`, `failureUrl`, and `cancelUrl` (back to cart), and treats the returned session `id` as required. If the Hosted Checkout create response omits or empties that field, checkout fails instead of saving an empty `_oen_session_id` and weakening stale-attempt protection.
+The plugin does not inject `merchantId` for the v1 secret-key contract. It sends `successUrl`, `failureUrl`, and `cancelUrl` (back to cart), and treats the returned session `id` as required. If the Hosted Checkout create response omits or empties that field, checkout fails instead of saving an empty `_oen_session_id` and weakening stale-attempt protection. When `process_payment()` runs again for the same unpaid order, the plugin first checks the stored `_oen_session_id` with `GET /hosted-checkout/v1/sessions/{sessionId}` and reuses the saved `_oen_checkout_url` while that session remains in flight. A new attempt is created only after the earlier session is already in a terminal, non-reusable state such as `completed`, `charged`, `failed`, `expired`, or `cancelled`.
 
 ### Webhook Signature and Event Envelope
 

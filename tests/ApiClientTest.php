@@ -5,11 +5,170 @@ declare( strict_types=1 );
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/../includes/class-oen-api-client.php';
 
+if ( ! function_exists( 'sanitize_text_field' ) ) {
+    function sanitize_text_field( mixed $value ): string {
+        if ( is_scalar( $value ) ) {
+            return trim( (string) $value );
+        }
+
+        return '';
+    }
+}
+
+if ( ! function_exists( 'wc_add_notice' ) ) {
+    function wc_add_notice( string $message, string $type = 'success' ): void {
+        $GLOBALS['test_wc_notices'][] = [
+            'message' => $message,
+            'type'    => $type,
+        ];
+    }
+}
+
+if ( ! function_exists( 'add_action' ) ) {
+    function add_action( string $hook, array $callback ): void {}
+}
+
+if ( ! class_exists( 'WC_Payment_Gateway', false ) ) {
+    class WC_Payment_Gateway {
+        public string $id = '';
+        public string $method_title = '';
+        public string $method_description = '';
+        public string $icon = '';
+        public string $title = '';
+        public string $description = '';
+        public string $enabled = '';
+        public bool $has_fields = false;
+        public array $supports = [];
+        public array $form_fields = [];
+        protected array $settings = [];
+
+        public function init_settings(): void {}
+
+        public function get_option( string $key, mixed $default = '' ): mixed {
+            return $this->settings[ $key ] ?? $default;
+        }
+
+        public function get_return_url( WC_Order $order ): string {
+            return 'https://store.example/orders/' . $order->get_id() . '/thank-you';
+        }
+
+        public function is_available(): bool {
+            return true;
+        }
+
+        public function process_admin_options(): void {}
+    }
+}
+
+if ( ! class_exists( 'WC_Order', false ) ) {
+    class WC_Order {
+        private int $id;
+        private int $total;
+        private bool $paid = false;
+        private array $meta = [];
+
+        public function __construct( int $id, int $total = 1234 ) {
+            $this->id    = $id;
+            $this->total = $total;
+        }
+
+        public function get_id(): int {
+            return $this->id;
+        }
+
+        public function get_total(): int {
+            return $this->total;
+        }
+
+        public function get_meta( string $key ): mixed {
+            return $this->meta[ $key ] ?? '';
+        }
+
+        public function update_meta_data( string $key, mixed $value ): void {
+            $this->meta[ $key ] = $value;
+        }
+
+        public function delete_meta_data( string $key ): void {
+            unset( $this->meta[ $key ] );
+        }
+
+        public function save(): void {}
+
+        public function is_paid(): bool {
+            return $this->paid;
+        }
+
+        public function set_paid( bool $paid ): void {
+            $this->paid = $paid;
+        }
+
+        public function get_billing_first_name(): string {
+            return 'Test';
+        }
+
+        public function get_billing_last_name(): string {
+            return 'Buyer';
+        }
+
+        public function get_billing_email(): string {
+            return 'buyer@example.com';
+        }
+
+        public function get_items(): array {
+            return [];
+        }
+
+        public function get_shipping_total(): int {
+            return 0;
+        }
+
+        public function get_item_total( mixed $item, bool $inc_tax = false ): int {
+            return 0;
+        }
+    }
+}
+
+if ( ! function_exists( 'wc_get_order' ) ) {
+    function wc_get_order( int $order_id ): ?WC_Order {
+        return $GLOBALS['test_wc_orders'][ $order_id ] ?? null;
+    }
+}
+
+require_once __DIR__ . '/../includes/class-wc-gateway-oen.php';
+
+if ( ! class_exists( 'Test_OEN_Gateway', false ) ) {
+    class Test_OEN_Gateway extends WC_Gateway_OEN {
+        public function __construct() {
+            $this->id                 = 'oen_test';
+            $this->method_title       = 'OEN Test';
+            $this->method_description = 'OEN test gateway';
+            $this->payment_method_type = 'card';
+            $this->icon               = '';
+
+            parent::__construct();
+        }
+
+        protected function build_checkout_params( \WC_Order $order ): array {
+            return [
+                'amount'     => intval( $order->get_total() ),
+                'currency'   => 'TWD',
+                'orderId'    => 'wc-order-' . $order->get_id(),
+                'successUrl' => $this->get_return_url( $order ),
+                'failureUrl' => 'https://store.example/checkout',
+                'cancelUrl'  => 'https://store.example/cart',
+            ];
+        }
+    }
+}
+
 function test_reset_http_stubs(): void {
     $GLOBALS['test_http_post_calls'] = [];
     $GLOBALS['test_http_get_calls']  = [];
     $GLOBALS['test_http_post_queue'] = [];
     $GLOBALS['test_http_get_queue']   = [];
+    $GLOBALS['test_wc_notices']      = [];
+    $GLOBALS['test_wc_orders']       = [];
+    $GLOBALS['test_options']         = [];
 }
 
 function test_create_session_uses_hosted_checkout_contract(): void {
@@ -197,9 +356,113 @@ function test_get_session_uses_hosted_checkout_contract(): void {
     );
 }
 
+function test_process_payment_reuses_existing_reusable_session(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1001, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_existing' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_existing' );
+    $GLOBALS['test_wc_orders'][1001] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_existing',
+                'status'      => 'pending',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_existing',
+            ],
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1001 );
+
+    test_assert(
+        'success' === ( $result['result'] ?? null ),
+        'process_payment() should succeed when an existing session is still reusable.'
+    );
+    test_assert(
+        'https://oen.tw/checkout/sess_existing' === ( $result['redirect'] ?? null ),
+        'process_payment() should redirect back to the reusable checkout URL instead of creating a new session.'
+    );
+    test_assert(
+        1 === count( $GLOBALS['test_http_get_calls'] ),
+        'process_payment() should verify the stored session before deciding whether to reuse it.'
+    );
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'process_payment() should not create a new session when the current one is still reusable.'
+    );
+}
+
+function test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1002, 5678 );
+    $order->update_meta_data( '_oen_session_id', 'sess_old' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_old' );
+    $order->update_meta_data( '_oen_transaction_hid', 'txn_old_attempt' );
+    $GLOBALS['test_wc_orders'][1002] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'     => 'sess_old',
+                'status' => 'expired',
+            ],
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_new',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_new',
+            ],
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1002 );
+
+    test_assert(
+        'success' === ( $result['result'] ?? null ),
+        'process_payment() should create a new session when the stored session is terminal.'
+    );
+    test_assert(
+        'https://oen.tw/checkout/sess_new' === ( $result['redirect'] ?? null ),
+        'process_payment() should redirect to the newly created checkout URL after refreshing a terminal session.'
+    );
+    test_assert(
+        'sess_new' === $order->get_meta( '_oen_session_id' ),
+        'process_payment() should replace the stored session ID when creating a new attempt.'
+    );
+    test_assert(
+        'https://oen.tw/checkout/sess_new' === $order->get_meta( '_oen_checkout_url' ),
+        'process_payment() should store the new checkout URL for future reuse.'
+    );
+    test_assert(
+        '' === $order->get_meta( '_oen_transaction_hid' ),
+        'process_payment() should clear an old transaction hid when the new session create response does not include one.'
+    );
+}
+
 test_create_session_uses_hosted_checkout_contract();
 test_create_session_rejects_missing_session_id();
 test_create_session_uses_unique_idempotency_key_per_attempt();
 test_get_session_uses_hosted_checkout_contract();
+test_process_payment_reuses_existing_reusable_session();
+test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid();
 
 echo "API client smoke harness passed.\n";
