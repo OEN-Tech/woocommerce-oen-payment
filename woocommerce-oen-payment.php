@@ -61,7 +61,6 @@ add_action( 'plugins_loaded', function (): void {
     }
 
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-api-client.php';
-    require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-settings.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen-credit.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen-cvs.php';
@@ -70,10 +69,14 @@ add_action( 'plugins_loaded', function (): void {
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-email-handler.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-error-handler.php';
 
-    add_filter( 'woocommerce_get_settings_pages', function ( array $settings ): array {
-        $settings[] = new OEN_Settings();
-        return $settings;
-    } );
+    if ( is_admin() && class_exists( 'WC_Settings_Page' ) ) {
+        require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-settings.php';
+
+        add_filter( 'woocommerce_get_settings_pages', function ( array $settings ): array {
+            $settings[] = new OEN_Settings();
+            return $settings;
+        } );
+    }
 
     add_filter( 'woocommerce_payment_gateways', function ( array $gateways ): array {
         if ( 'yes' === get_option( 'oen_enabled', 'no' ) ) {

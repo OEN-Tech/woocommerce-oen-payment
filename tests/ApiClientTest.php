@@ -356,6 +356,40 @@ function test_get_session_uses_hosted_checkout_contract(): void {
     );
 }
 
+function test_get_session_respects_runtime_api_base_url_override(): void {
+    test_reset_http_stubs();
+
+    putenv( 'OEN_API_BASE_URL=http://api-stub:8080' );
+
+    try {
+        $client = new OEN_API_Client( 'merchant-123', 'sk_test_secret', true );
+
+        $GLOBALS['test_http_get_queue'][] = [
+            'response' => [ 'code' => 200 ],
+            'body'     => wp_json_encode( [
+                'code' => 'S0000',
+                'data' => [
+                    'id'     => 'sess_123',
+                    'status' => 'pending',
+                ],
+            ] ),
+        ];
+
+        $result = $client->get_session( 'sess_123' );
+
+        test_assert(
+            ( $GLOBALS['test_http_get_calls'][0]['url'] ?? null ) === 'http://api-stub:8080/hosted-checkout/v1/sessions/sess_123',
+            'Runtime harness should be able to override the OEN API base URL for full WordPress tests.'
+        );
+        test_assert(
+            ( $result['id'] ?? null ) === 'sess_123',
+            'Overridden API base URL should still parse Hosted Checkout session responses.'
+        );
+    } finally {
+        putenv( 'OEN_API_BASE_URL' );
+    }
+}
+
 function test_process_payment_reuses_existing_reusable_session(): void {
     test_reset_http_stubs();
 
@@ -735,6 +769,7 @@ test_create_session_uses_hosted_checkout_contract();
 test_create_session_rejects_missing_session_id();
 test_create_session_uses_unique_idempotency_key_per_attempt();
 test_get_session_uses_hosted_checkout_contract();
+test_get_session_respects_runtime_api_base_url_override();
 test_process_payment_reuses_existing_reusable_session();
 test_process_payment_fails_closed_for_mismatched_reusable_session();
 test_process_payment_fails_closed_for_ambiguous_completed_reusable_session();

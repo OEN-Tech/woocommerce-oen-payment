@@ -19,7 +19,7 @@ class OEN_API_Client {
         $this->merchant_id = $merchant_id;
         $this->secret_key  = $secret_key;
         $this->sandbox     = $sandbox;
-        $this->base_url    = $sandbox ? self::SANDBOX_API_URL : self::PRODUCTION_API_URL;
+        $this->base_url    = $this->resolve_base_url( $sandbox );
     }
 
     public function create_session( array $params ): array {
@@ -95,6 +95,15 @@ class OEN_API_Client {
             );
         }
         return new self( $merchant_id, $secret_key, $sandbox );
+    }
+
+    private function resolve_base_url( bool $sandbox ): string {
+        $override = getenv( 'OEN_API_BASE_URL' );
+        if ( is_string( $override ) && '' !== trim( $override ) ) {
+            return rtrim( trim( $override ), '/' );
+        }
+
+        return $sandbox ? self::SANDBOX_API_URL : self::PRODUCTION_API_URL;
     }
 
     private function generate_idempotency_key(): string {
