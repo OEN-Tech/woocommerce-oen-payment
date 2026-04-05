@@ -33,9 +33,25 @@ Features:
 
 1. Upload the `woocommerce-oen-payment` folder to `/wp-content/plugins/`
 2. Activate the plugin through the Plugins menu in WordPress
-3. Go to WooCommerce > Settings > OEN to configure your MerchantID and API Token
+3. Go to WooCommerce > Settings > OEN to configure your MerchantID, Secret Key, and Webhook Secret
 4. Go to WooCommerce > Settings > Payments to enable OEN Credit and/or OEN Cvs
 5. Configure your webhook URL in OEN CRM backend: `https://yoursite.com/?wc-api=oen_payment`
+
+Hosted Checkout Session API:
+
+* `POST /hosted-checkout/v1/sessions` creates a checkout session and returns `checkoutUrl`
+* `GET /hosted-checkout/v1/sessions/{sessionId}` fetches a single session
+* Use `Authorization: Bearer <Secret Key>` for Hosted Checkout Session API calls
+
+Webhook contract:
+
+* Webhooks send `OenPay-Signature: t=...,v1=...`
+* The signature is an HMAC-SHA256 over `{timestamp}.{raw_body}` using the configured Webhook Secret
+* Webhook payloads arrive as an event envelope with the business payload nested under `data`
+
+Example webhook envelope:
+
+`{"id":"evt_test_123","type":"payment.succeeded","data":{"sessionId":"sess_123","orderId":"wc_1001","transactionId":"txn_123","transactionHid":"txn_hid_123","status":"charged","paymentMethod":"card","paymentProvider":"oenpay"}}`
 
 == Changelog ==
 

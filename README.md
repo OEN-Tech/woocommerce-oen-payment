@@ -25,7 +25,7 @@
 
 1. 將 `woocommerce-oen-payment` 資料夾上傳至 `/wp-content/plugins/`
 2. 在 WordPress 後台「外掛」頁面啟用外掛
-3. 前往 **WooCommerce > 設定 > OEN** 設定商店代碼（MerchantID）及 API 金鑰
+3. 前往 **WooCommerce > 設定 > OEN** 設定商店代碼（MerchantID）、Secret Key 與 Webhook Secret
 4. 前往 **WooCommerce > 設定 > 付款方式** 啟用「OEN 信用卡」及/或「OEN 超商繳費」
 5. 至 OEN CRM 後台設定 Webhook 網址：`https://你的網站網址/?wc-api=oen_payment`
 
@@ -41,13 +41,59 @@
 | 在 Email 中顯示付款資訊 | 在訂單通知信中加入金流編號、繳費代碼等資訊 |
 | OEN 測試環境 | 勾選後使用 OEN 測試環境 API |
 | 商店代碼 | OEN 商店代碼（MerchantID） |
-| API 金鑰 | OEN API Token（Bearer 認證） |
+| Secret Key | OEN API Secret Key（Bearer 認證，用於 Hosted Checkout Session API） |
+| Webhook Secret | 用於驗證 `OenPay-Signature` 的 HMAC 密鑰；留空則略過簽名驗證 |
 
 ### 付款流程
 
 **信用卡：** 消費者選擇「OEN 信用卡」→ 導向 OEN 結帳頁面 → 完成付款 → 返回商店感謝頁 → Webhook 通知更新訂單狀態
 
 **超商繳費：** 消費者選擇「OEN 超商繳費」→ 導向 OEN 結帳頁面取得繳費代碼 → 至超商繳費 → Webhook 通知更新訂單狀態
+
+### Hosted Checkout Session API
+
+外掛目前使用 OEN Hosted Checkout Session API：
+
+- `POST /hosted-checkout/v1/sessions`：建立 checkout session，回傳 `checkoutUrl`
+- `GET /hosted-checkout/v1/sessions/{sessionId}`：查詢單一 session 狀態
+
+`Authorization` header 應使用 `Bearer <Secret Key>`。
+
+### Webhook Signature 與 Event Envelope
+
+Webhook request 會帶 `OenPay-Signature` header，格式如下：
+
+```text
+OenPay-Signature: t=1712345678,v1=<hex_hmac_sha256>
+```
+
+簽名內容為：
+
+```text
+{timestamp}.{raw_body}
+```
+
+其中 `timestamp` 來自 header 的 `t`，HMAC 演算法為 `sha256`，使用 **Webhook Secret** 驗證。
+
+Webhook body 為 event envelope，業務欄位位於巢狀的 `data` 物件中，例如：
+
+```json
+{
+  "id": "evt_test_123",
+  "type": "payment.succeeded",
+  "data": {
+    "sessionId": "sess_123",
+    "orderId": "wc_1001",
+    "transactionId": "txn_123",
+    "transactionHid": "txn_hid_123",
+    "status": "charged",
+    "paymentMethod": "card",
+    "paymentProvider": "oenpay"
+  }
+}
+```
+
+Webhook handler 會先解析 envelope 並取出 `data`，再使用 `transactionHid` 進行 server-side verification，避免直接信任 webhook body。
 
 ## 授權條款
 
@@ -82,7 +128,7 @@ Integrates OEN Payment (應援科技) with WooCommerce, enabling merchants to ac
 
 1. Upload the `woocommerce-oen-payment` folder to `/wp-content/plugins/`
 2. Activate the plugin through the Plugins menu in WordPress
-3. Go to **WooCommerce > Settings > OEN** to configure your MerchantID and API Token
+3. Go to **WooCommerce > Settings > OEN** to configure your MerchantID, Secret Key, and Webhook Secret
 4. Go to **WooCommerce > Settings > Payments** to enable OEN Credit and/or OEN Cvs
 5. Configure your webhook URL in OEN CRM backend: `https://yoursite.com/?wc-api=oen_payment`
 
@@ -98,13 +144,59 @@ Integrates OEN Payment (應援科技) with WooCommerce, enabling merchants to ac
 | Show payment info in email | Add transaction ID, CVS payment code to order emails |
 | OEN sandbox | Use OEN testing environment API |
 | MerchantID | OEN store code |
-| API Token | OEN API Token (Bearer authentication) |
+| Secret Key | OEN API Secret Key used as the Bearer token for Hosted Checkout Session API calls |
+| Webhook Secret | HMAC secret used to verify the `OenPay-Signature` header; leave empty to skip signature verification |
 
 ### Payment Flow
 
 **Credit Card:** Customer selects "OEN Credit" → Redirected to OEN checkout → Completes payment → Returns to thank-you page → Webhook updates order status
 
 **CVS:** Customer selects "OEN Cvs" → Redirected to OEN checkout for payment code → Pays at convenience store → Webhook updates order status
+
+### Hosted Checkout Session API
+
+The plugin uses the OEN Hosted Checkout Session API:
+
+- `POST /hosted-checkout/v1/sessions` to create a checkout session and receive `checkoutUrl`
+- `GET /hosted-checkout/v1/sessions/{sessionId}` to fetch a single session
+
+Send `Authorization: Bearer <Secret Key>` when calling these endpoints.
+
+### Webhook Signature and Event Envelope
+
+Hosted checkout webhooks send an `OenPay-Signature` header in this format:
+
+```text
+OenPay-Signature: t=1712345678,v1=<hex_hmac_sha256>
+```
+
+The signed payload is:
+
+```text
+{timestamp}.{raw_body}
+```
+
+Where `timestamp` is the `t` value from the header. The HMAC algorithm is `sha256` and the secret is the configured **Webhook Secret**.
+
+Webhook bodies arrive as an event envelope, with the business payload nested under `data`, for example:
+
+```json
+{
+  "id": "evt_test_123",
+  "type": "payment.succeeded",
+  "data": {
+    "sessionId": "sess_123",
+    "orderId": "wc_1001",
+    "transactionId": "txn_123",
+    "transactionHid": "txn_hid_123",
+    "status": "charged",
+    "paymentMethod": "card",
+    "paymentProvider": "oenpay"
+  }
+}
+```
+
+The webhook handler parses the envelope, reads fields from `data`, and still performs server-side verification with `transactionHid` before updating the WooCommerce order.
 
 ## License
 

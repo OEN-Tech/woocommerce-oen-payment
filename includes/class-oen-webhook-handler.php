@@ -2,12 +2,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
+require_once __DIR__ . '/class-oen-webhook-parser.php';
+
 /**
  * Handles incoming OEN Payment webhook callbacks.
  *
- * Registered at /?wc-api=oen_payment. OEN sends POST with JSON payload
- * when a transaction status changes (e.g., ATM/CVS payment completed).
- * Also handles credit card webhook confirmations.
+ * Registered at /?wc-api=oen_payment. OEN sends POST with a hosted checkout
+ * event envelope whose business payload lives under the nested data field.
  */
 class OEN_Webhook_Handler {
 
@@ -21,25 +22,31 @@ class OEN_Webhook_Handler {
     public function handle(): void {
         $raw_body = file_get_contents( 'php://input' );
 
-        // Step 1: HMAC signature verification (if webhook secret is configured).
-        if ( ! $this->verify_signature( $raw_body ) ) {
+        try {
+            $payload = $this->parse_webhook_payload( $raw_body );
+        } catch ( \Throwable $exception ) {
+            $status_code = $this->get_parser_status_code( $exception );
+            $this->log( $exception->getMessage(), $raw_body );
+            wp_send_json( [ 'status' => 'error', 'message' => $exception->getMessage() ], $status_code );
             return;
         }
 
-        $payload = json_decode( $raw_body, true );
-
         if ( ! is_array( $payload ) || empty( $payload['orderId'] ) ) {
-            $this->log( 'Invalid webhook payload: missing orderId', $raw_body );
+            $this->log( 'Invalid webhook payload: missing orderId in event data', $raw_body );
             wp_send_json( [ 'status' => 'error', 'message' => 'Invalid payload' ], 400 );
             return;
         }
 
-        // Sanitize all external string fields to prevent HTML injection in
-        // order notes, meta values, and log entries.
-        $payload['orderId']        = sanitize_text_field( $payload['orderId'] );
-        $payload['transactionHid'] = sanitize_text_field( $payload['transactionHid'] ?? '' );
-        $payload['status']         = sanitize_text_field( $payload['status'] ?? '' );
-        $payload['message']        = sanitize_text_field( $payload['message'] ?? '' );
+        // Sanitize external string fields to prevent HTML injection in order notes,
+        // meta values, and log entries.
+        $payload['sessionId']       = sanitize_text_field( $payload['sessionId'] ?? '' );
+        $payload['orderId']         = sanitize_text_field( $payload['orderId'] );
+        $payload['transactionHid']  = sanitize_text_field( $payload['transactionHid'] ?? '' );
+        $payload['transactionId']   = sanitize_text_field( $payload['transactionId'] ?? '' );
+        $payload['status']          = sanitize_text_field( $payload['status'] ?? '' );
+        $payload['message']         = sanitize_text_field( $payload['message'] ?? '' );
+        $payload['paymentMethod']   = sanitize_text_field( $payload['paymentMethod'] ?? '' );
+        $payload['paymentProvider'] = sanitize_text_field( $payload['paymentProvider'] ?? '' );
 
         // Server-side verification requires transactionHid.
         $transaction_hid = $payload['transactionHid'];
@@ -106,31 +113,47 @@ class OEN_Webhook_Handler {
     }
 
     /**
-     * Verify HMAC signature if webhook secret is configured.
-     *
-     * When no secret is set, signature check is skipped (backward-compatible).
-     * Returns true if verification passes or is not configured.
+     * Parse the hosted checkout webhook envelope and return its nested data payload.
      *
      * @param string $raw_body Raw request body.
-     * @return bool
+     * @return array<string, mixed>
      */
-    private function verify_signature( string $raw_body ): bool {
-        $webhook_secret = get_option( 'oen_webhook_secret', '' );
+    private function parse_webhook_payload( string $raw_body ): array {
+        $parser = new OEN_Webhook_Parser( get_option( 'oen_webhook_secret', '' ) );
 
-        if ( empty( $webhook_secret ) ) {
-            return true;
+        return $parser->parse( $raw_body, $this->get_signature_header() );
+    }
+
+    /**
+     * Resolve the OenPay-Signature header from common PHP server variables.
+     */
+    private function get_signature_header(): string {
+        if ( isset( $_SERVER['HTTP_OENPAY_SIGNATURE'] ) ) {
+            return (string) $_SERVER['HTTP_OENPAY_SIGNATURE'];
         }
 
-        $signature = $_SERVER['HTTP_X_OEN_SIGNATURE'] ?? '';
-        $expected  = hash_hmac( 'sha256', $raw_body, $webhook_secret );
-
-        if ( ! hash_equals( $expected, $signature ) ) {
-            $this->log( 'Invalid webhook signature' );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Invalid signature' ], 403 );
-            return false;
+        if ( function_exists( 'getallheaders' ) ) {
+            foreach ( getallheaders() as $name => $value ) {
+                if ( 0 === strcasecmp( $name, 'OenPay-Signature' ) ) {
+                    return is_string( $value ) ? $value : '';
+                }
+            }
         }
 
-        return true;
+        return '';
+    }
+
+    /**
+     * Map parser exceptions to HTTP status codes.
+     */
+    private function get_parser_status_code( \Throwable $exception ): int {
+        $code = (int) $exception->getCode();
+
+        if ( $code >= 400 && $code < 600 ) {
+            return $code;
+        }
+
+        return 400;
     }
 
     /**
