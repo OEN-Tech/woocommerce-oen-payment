@@ -42,6 +42,7 @@ Hosted Checkout Session API:
 * `POST /hosted-checkout/v1/sessions` creates a checkout session and returns a non-empty `id` plus `checkoutUrl`
 * `GET /hosted-checkout/v1/sessions/{sessionId}` fetches a single session
 * Use `Authorization: Bearer <Secret Key>` for Hosted Checkout Session API calls
+* The v1 secret-key contract does not require `merchantId`; the plugin sends `successUrl`, `failureUrl`, and `cancelUrl` instead
 * If the create response omits the session `id`, checkout fails instead of storing an empty `_oen_session_id`
 
 Webhook contract:
@@ -50,13 +51,15 @@ Webhook contract:
 * The signature is an HMAC-SHA256 over `{timestamp}.{raw_body}` using the configured Webhook Secret
 * The `t` timestamp must be within the default 300-second tolerance window
 * Webhook payloads arrive as an event envelope with the event `type` plus business payload nested under `data`
-* The webhook handler verifies with `transactionHid` when present, or falls back to `GET /hosted-checkout/v1/sessions/{sessionId}` when only `sessionId` is available
-* The webhook handler only updates orders when the event type and verified session/transaction status agree on the same terminal success/failure outcome
-* If the order stores `_oen_session_id`, any webhook missing that `sessionId` or carrying a different one is treated as stale and safely ignored
+* Hosted Checkout session ids are read from `data.id` with `data.sessionId` kept as a backward-compatible fallback
+* The current Hosted Checkout event types are `checkout_session.completed`, `checkout_session.failed`, `checkout_session.expired`, and `checkout_session.cancelled`
+* When a session id is present, the webhook handler prefers `GET /hosted-checkout/v1/sessions/{sessionId}` verification and uses session statuses `completed`, `failed`, `expired`, and `cancelled`
+* `transactionHid` verification remains a fallback only when the webhook does not contain a session id
+* If the order stores `_oen_session_id`, any webhook missing that session id or carrying a different one is treated as stale and safely ignored
 
 Example webhook envelope:
 
-`{"id":"evt_test_123","type":"payment.succeeded","data":{"sessionId":"sess_123","orderId":"wc_1001","transactionId":"txn_123","transactionHid":"txn_hid_123","status":"charged","paymentMethod":"card","paymentProvider":"oenpay"}}`
+`{"id":"evt_test_123","type":"checkout_session.completed","data":{"id":"sess_123","orderId":"wc_1001","transactionId":"txn_123","transactionHid":"txn_hid_123","status":"completed","paymentMethod":"card","paymentProvider":"oenpay"}}`
 
 == Changelog ==
 

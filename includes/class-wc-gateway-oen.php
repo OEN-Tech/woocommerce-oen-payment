@@ -124,8 +124,6 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             }
             if ( ! empty( $result['transactionHid'] ) ) {
                 $order->update_meta_data( '_oen_transaction_hid', $result['transactionHid'] );
-            } else {
-                $order->delete_meta_data( '_oen_transaction_hid' );
             }
             $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
             $order->save();
@@ -164,6 +162,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             'orderId'        => $order_id,
             'successUrl'     => $this->get_return_url( $order ),
             'failureUrl'     => wc_get_checkout_url(),
+            'cancelUrl'      => wc_get_cart_url(),
             'userName'       => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ),
             'userEmail'      => $order->get_billing_email(),
             'productDetails' => $this->build_product_details( $order ),

@@ -44,7 +44,7 @@ class OEN_Webhook_Handler {
         // meta values, and log entries.
         $payload                    = [];
         $payload['type']            = $event_type;
-        $payload['sessionId']       = sanitize_text_field( $event_data['sessionId'] ?? '' );
+        $payload['sessionId']       = sanitize_text_field( (string) ( $event_data['id'] ?? $event_data['sessionId'] ?? '' ) );
         $payload['orderId']         = sanitize_text_field( $event_data['orderId'] );
         $payload['transactionHid']  = sanitize_text_field( $event_data['transactionHid'] ?? '' );
         $payload['transactionId']   = sanitize_text_field( $event_data['transactionId'] ?? '' );
@@ -98,9 +98,9 @@ class OEN_Webhook_Handler {
                 $response = [ 'status' => 'ok', 'message' => 'Stale event ignored' ];
             } else {
                 // Step 2: Server-side verification — query OEN API for authoritative state.
-                $verified_payment = ! empty( $transaction_hid )
-                    ? $this->verify_transaction( $transaction_hid, $order )
-                    : $this->verify_session( $session_id, $order );
+                $verified_payment = ! empty( $session_id )
+                    ? $this->verify_session( $session_id, $order )
+                    : $this->verify_transaction( $transaction_hid, $order );
 
                 if ( null === $verified_payment ) {
                     // Verification helper already logged the error.
@@ -238,8 +238,7 @@ class OEN_Webhook_Handler {
         return in_array(
             $event_type,
             [
-                'payment.succeeded',
-                'transaction.charged',
+                'checkout_session.completed',
             ],
             true
         );
@@ -252,14 +251,9 @@ class OEN_Webhook_Handler {
         return in_array(
             $event_type,
             [
-                'payment.failed',
-                'payment.expired',
-                'payment.cancelled',
-                'payment.canceled',
-                'transaction.failed',
-                'transaction.expired',
-                'transaction.cancelled',
-                'transaction.canceled',
+                'checkout_session.failed',
+                'checkout_session.expired',
+                'checkout_session.cancelled',
             ],
             true
         );
@@ -269,7 +263,7 @@ class OEN_Webhook_Handler {
      * Determine whether the verified transaction status is a success terminal state.
      */
     private static function is_success_status( string $status ): bool {
-        return in_array( $status, [ 'charged' ], true );
+        return in_array( $status, [ 'completed', 'charged' ], true );
     }
 
     /**
@@ -282,7 +276,6 @@ class OEN_Webhook_Handler {
                 'failed',
                 'expired',
                 'cancelled',
-                'canceled',
             ],
             true
         );
@@ -478,7 +471,7 @@ class OEN_Webhook_Handler {
         $transaction_hid = $transaction['transactionHid'] ?? '';
         $status          = sanitize_text_field( $transaction['status'] ?? '' );
 
-        if ( 'charged' !== $status ) {
+        if ( ! in_array( $status, [ 'completed', 'charged' ], true ) ) {
             $this->log(
                 sprintf(
                     'Skipping success transition for order #%d because verified status is %s',

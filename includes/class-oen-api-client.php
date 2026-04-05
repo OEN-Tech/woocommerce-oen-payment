@@ -23,7 +23,6 @@ class OEN_API_Client {
     }
 
     public function create_session( array $params ): array {
-        $params['merchantId'] = $this->merchant_id;
         if ( ! isset( $params['currency'] ) ) {
             $params['currency'] = 'TWD';
         }

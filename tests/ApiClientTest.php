@@ -34,8 +34,9 @@ function test_create_session_uses_hosted_checkout_contract(): void {
     );
 
     $result = $client->create_session( [
-        'amount'   => 1234,
-        'currency' => 'TWD',
+        'amount'    => 1234,
+        'currency'  => 'TWD',
+        'cancelUrl' => 'https://store.example/cart',
     ] );
 
     test_assert(
@@ -65,8 +66,12 @@ function test_create_session_uses_hosted_checkout_contract(): void {
         'POST payload should include amount, orderId, and currency.'
     );
     test_assert(
-        ( $decoded_body['merchantId'] ?? null ) === 'merchant-123',
-        'POST payload should include merchantId when the contract still requires it.'
+        ! array_key_exists( 'merchantId', $decoded_body ),
+        'POST payload should not auto-inject merchantId for the Hosted Checkout v1 secret-key contract.'
+    );
+    test_assert(
+        ( $decoded_body['cancelUrl'] ?? null ) === 'https://store.example/cart',
+        'POST payload should preserve cancelUrl when the gateway provides it.'
     );
     test_assert(
         ( $result['id'] ?? null ) === 'sess_123',

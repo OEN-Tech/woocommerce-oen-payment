@@ -29,13 +29,13 @@ function test_parser_verifies_signature_and_returns_event_type_and_nested_event_
     $timestamp = (string) time();
     $raw_body  = wp_json_encode( [
         'id'   => 'evt_test_123',
-        'type' => 'payment.succeeded',
+        'type' => 'checkout_session.completed',
         'data' => [
-            'sessionId'       => 'sess_123',
+            'id'              => 'sess_123',
             'orderId'         => 'wc_1001',
             'transactionHid'  => 'txn_hid_123',
             'transactionId'   => 'txn_123',
-            'status'          => 'charged',
+            'status'          => 'completed',
             'paymentMethod'   => 'card',
             'paymentProvider' => 'oenpay',
         ],
@@ -54,7 +54,7 @@ function test_parser_verifies_signature_and_returns_event_type_and_nested_event_
         'Parser should return the parsed event envelope.'
     );
     test_assert(
-        ( $payload['type'] ?? null ) === 'payment.succeeded',
+        ( $payload['type'] ?? null ) === 'checkout_session.completed',
         'Parser should preserve the event type.'
     );
     test_assert(
@@ -66,11 +66,15 @@ function test_parser_verifies_signature_and_returns_event_type_and_nested_event_
         'Parser should return orderId from event data.'
     );
     test_assert(
+        ( $payload['data']['id'] ?? null ) === 'sess_123',
+        'Parser should preserve the Hosted Checkout session id at data.id.'
+    );
+    test_assert(
         ( $payload['data']['transactionHid'] ?? null ) === 'txn_hid_123',
         'Parser should return transactionHid from event data.'
     );
     test_assert(
-        ( $payload['data']['status'] ?? null ) === 'charged',
+        ( $payload['data']['status'] ?? null ) === 'completed',
         'Parser should return status from event data.'
     );
 }
@@ -80,10 +84,10 @@ function test_parser_rejects_invalid_signature(): void {
     $timestamp = (string) time();
     $raw_body  = wp_json_encode( [
         'id'   => 'evt_test_456',
-        'type' => 'payment.failed',
+        'type' => 'checkout_session.failed',
         'data' => [
-            'orderId'        => 'wc_1002',
-            'transactionHid' => 'txn_hid_456',
+            'id'      => 'sess_456',
+            'orderId' => 'wc_1002',
         ],
     ] );
 
@@ -111,10 +115,10 @@ function test_parser_rejects_stale_signature_timestamp(): void {
     $timestamp = (string) ( time() - 301 );
     $raw_body  = wp_json_encode( [
         'id'   => 'evt_test_stale',
-        'type' => 'payment.succeeded',
+        'type' => 'checkout_session.completed',
         'data' => [
-            'sessionId' => 'sess_123',
-            'orderId'   => 'wc_1003',
+            'id'      => 'sess_123',
+            'orderId' => 'wc_1003',
         ],
     ] );
 
@@ -168,11 +172,21 @@ function test_handler_allows_session_only_verified_attempt_when_session_matches(
     );
 }
 
-function test_handler_does_not_fail_order_when_failure_event_has_non_failure_verified_status(): void {
-    $resolution = OEN_Webhook_Handler::resolve_event_action( 'payment.failed', 'charged' );
+function test_handler_maps_hosted_checkout_event_names_and_statuses(): void {
+    $success_resolution = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.completed', 'completed' );
+    $failure_resolution = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.cancelled', 'cancelled' );
+    $ignored_resolution = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.failed', 'completed' );
 
     test_assert(
-        'ignore' === $resolution,
+        'success' === $success_resolution,
+        'Completed Hosted Checkout events with completed verified status should resolve to success.'
+    );
+    test_assert(
+        'failure' === $failure_resolution,
+        'Cancelled Hosted Checkout events with cancelled verified status should resolve to failure.'
+    );
+    test_assert(
+        'ignore' === $ignored_resolution,
         'Failure events with non-failure verified statuses should be ignored.'
     );
 }
@@ -182,6 +196,6 @@ test_parser_rejects_invalid_signature();
 test_parser_rejects_stale_signature_timestamp();
 test_handler_treats_missing_session_id_as_stale_when_order_has_stored_session();
 test_handler_allows_session_only_verified_attempt_when_session_matches();
-test_handler_does_not_fail_order_when_failure_event_has_non_failure_verified_status();
+test_handler_maps_hosted_checkout_event_names_and_statuses();
 
 echo "Webhook parser smoke harness passed.\n";
