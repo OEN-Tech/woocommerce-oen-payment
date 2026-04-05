@@ -172,6 +172,22 @@ function test_handler_allows_session_only_verified_attempt_when_session_matches(
     );
 }
 
+function test_handler_prefers_matching_session_id_over_older_transaction_hid(): void {
+    $reason = OEN_Webhook_Handler::detect_attempt_mismatch(
+        'sess_current',
+        'txn_old_attempt',
+        [
+            'sessionId'      => 'sess_current',
+            'transactionHid' => 'txn_new_attempt',
+        ]
+    );
+
+    test_assert(
+        null === $reason,
+        'A matching current session ID should be accepted even when transactionHid differs from an older stored attempt.'
+    );
+}
+
 function test_handler_maps_hosted_checkout_event_names_and_statuses(): void {
     $success_resolution = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.completed', 'completed' );
     $failure_resolution = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.cancelled', 'cancelled' );
@@ -196,6 +212,7 @@ test_parser_rejects_invalid_signature();
 test_parser_rejects_stale_signature_timestamp();
 test_handler_treats_missing_session_id_as_stale_when_order_has_stored_session();
 test_handler_allows_session_only_verified_attempt_when_session_matches();
+test_handler_prefers_matching_session_id_over_older_transaction_hid();
 test_handler_maps_hosted_checkout_event_names_and_statuses();
 
 echo "Webhook parser smoke harness passed.\n";

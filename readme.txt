@@ -55,6 +55,8 @@ Webhook contract:
 * The current Hosted Checkout event types are `checkout_session.completed`, `checkout_session.failed`, `checkout_session.expired`, and `checkout_session.cancelled`
 * When a session id is present, the webhook handler prefers `GET /hosted-checkout/v1/sessions/{sessionId}` verification and uses session statuses `completed`, `failed`, `expired`, and `cancelled`
 * `transactionHid` verification remains a fallback only when the webhook does not contain a session id
+* Stale-attempt protection is primarily bound to `_oen_session_id`, so a matching current session id is accepted even if an older stored `_oen_transaction_hid` differs
+* After verified success, the plugin writes authoritative `transactionHid` and `transactionId` values back to order meta
 * If the order stores `_oen_session_id`, any webhook missing that session id or carrying a different one is treated as stale and safely ignored
 
 Example webhook envelope:

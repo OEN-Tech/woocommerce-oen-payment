@@ -222,6 +222,8 @@ class OEN_Webhook_Handler {
             if ( $stored_session_id !== $incoming_session_id ) {
                 return sprintf( 'sessionId=%s, expected=%s', $incoming_session_id, $stored_session_id );
             }
+
+            return null;
         }
 
         if ( '' !== $stored_transaction_hid && '' !== $incoming_transaction && $stored_transaction_hid !== $incoming_transaction ) {
@@ -469,6 +471,7 @@ class OEN_Webhook_Handler {
      */
     private function handle_success( \WC_Order $order, array $transaction ): void {
         $transaction_hid = $transaction['transactionHid'] ?? '';
+        $transaction_id  = $transaction['transactionId'] ?? '';
         $status          = sanitize_text_field( $transaction['status'] ?? '' );
 
         if ( ! in_array( $status, [ 'completed', 'charged' ], true ) ) {
@@ -484,6 +487,12 @@ class OEN_Webhook_Handler {
 
         // Store payment metadata.
         $order->update_meta_data( '_oen_paid_at', current_time( 'c' ) );
+        if ( '' !== sanitize_text_field( (string) $transaction_hid ) ) {
+            $order->update_meta_data( '_oen_transaction_hid', sanitize_text_field( (string) $transaction_hid ) );
+        }
+        if ( '' !== sanitize_text_field( (string) $transaction_id ) ) {
+            $order->update_meta_data( '_oen_transaction_id', sanitize_text_field( (string) $transaction_id ) );
+        }
 
         // Store CVS-specific metadata if present.
         $payment_info = $transaction['paymentInfo'] ?? [];
