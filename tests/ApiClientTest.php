@@ -38,7 +38,7 @@ function test_create_session_uses_hosted_checkout_contract(): void {
     ] );
 
     test_assert(
-        ( $GLOBALS['test_http_post_calls'][0]['url'] ?? null ) === 'https://payment-api.oen.tw/hosted-checkout/v1/sessions',
+        ( $GLOBALS['test_http_post_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/hosted-checkout/v1/sessions',
         'POST should hit /hosted-checkout/v1/sessions.'
     );
     test_assert(
@@ -92,7 +92,7 @@ function test_get_session_uses_hosted_checkout_contract(): void {
     $result = $client->get_session( 'sess_123' );
 
     test_assert(
-        ( $GLOBALS['test_http_get_calls'][0]['url'] ?? null ) === 'https://payment-api.oen.tw/hosted-checkout/v1/sessions/sess_123',
+        ( $GLOBALS['test_http_get_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/hosted-checkout/v1/sessions/sess_123',
         'GET should hit /hosted-checkout/v1/sessions/{id}.'
     );
     test_assert(
