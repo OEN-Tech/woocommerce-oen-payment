@@ -47,7 +47,8 @@ Webhook contract:
 
 * Webhooks send `OenPay-Signature: t=...,v1=...`
 * The signature is an HMAC-SHA256 over `{timestamp}.{raw_body}` using the configured Webhook Secret
-* Webhook payloads arrive as an event envelope with the business payload nested under `data`
+* Webhook payloads arrive as an event envelope with the event `type` plus business payload nested under `data`
+* The webhook handler only updates orders for terminal success/failure events and safely ignores stale events that no longer match the order's current `sessionId` or `transactionHid`
 
 Example webhook envelope:
 

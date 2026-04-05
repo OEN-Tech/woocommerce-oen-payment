@@ -15,11 +15,11 @@ class OEN_Webhook_Parser {
 
     /**
      * Verify the signature header when configured, decode the webhook envelope,
-     * and return the nested data payload.
+     * and return the event type alongside the nested data payload.
      *
      * @param string $raw_body         Raw webhook request body.
      * @param string $signature_header OenPay-Signature header value.
-     * @return array<string, mixed>
+     * @return array{type: string, data: array<string, mixed>}
      */
     public function parse( string $raw_body, string $signature_header = '' ): array {
         if ( '' === $raw_body ) {
@@ -36,13 +36,21 @@ class OEN_Webhook_Parser {
             throw new \InvalidArgumentException( 'Invalid webhook payload: malformed JSON', 400 );
         }
 
+        $type    = $event['type'] ?? null;
         $payload = $event['data'] ?? null;
+
+        if ( ! is_string( $type ) || '' === $type ) {
+            throw new \InvalidArgumentException( 'Invalid webhook payload: missing event type', 400 );
+        }
 
         if ( ! is_array( $payload ) ) {
             throw new \InvalidArgumentException( 'Invalid webhook payload: missing data envelope', 400 );
         }
 
-        return $payload;
+        return [
+            'type' => $type,
+            'data' => $payload,
+        ];
     }
 
     /**
