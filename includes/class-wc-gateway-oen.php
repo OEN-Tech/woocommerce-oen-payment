@@ -70,7 +70,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
     /**
      * Check if the gateway is available for use.
      *
-     * Requires the master OEN toggle to be enabled and MerchantID + API Token set.
+     * Requires the master OEN toggle to be enabled and MerchantID + Secret Key set.
      */
     public function is_available(): bool {
         if ( 'yes' !== get_option( 'oen_enabled', 'no' ) ) {
@@ -85,7 +85,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
     }
 
     /**
-     * Process the payment: create OEN checkout and redirect.
+     * Process the payment: create OEN hosted checkout session and redirect.
      *
      * @param int $order_id WooCommerce order ID.
      * @return array{result: string, redirect: string}
@@ -104,18 +104,24 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
         try {
             $client = OEN_API_Client::from_settings();
             $params = $this->build_checkout_params( $order );
-            $result = $client->create_checkout( $params );
+            $result = $client->create_session( $params );
 
-            // Store OEN transaction references as order meta.
+            // Store OEN session and transaction references as order meta.
             $oen_order_id = $params['orderId'];
             $order->update_meta_data( '_oen_order_id', $oen_order_id );
-            $order->update_meta_data( '_oen_transaction_id', $result['id'] ?? '' );
+            $order->update_meta_data( '_oen_session_id', $result['id'] ?? '' );
+            $order->update_meta_data( '_oen_transaction_id', $result['transactionId'] ?? ( $result['id'] ?? '' ) );
             $order->update_meta_data( '_oen_transaction_hid', $result['transactionHid'] ?? '' );
             $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
             $order->save();
 
-            // Build the redirect URL to OEN's hosted checkout page.
-            $checkout_url = $client->get_checkout_url( $result['id'] );
+            $checkout_url = $result['checkoutUrl'] ?? '';
+
+            if ( empty( $checkout_url ) ) {
+                throw new \RuntimeException(
+                    __( 'OEN Payment API did not return a checkout URL.', 'woocommerce-oen-payment' )
+                );
+            }
 
             return [
                 'result'   => 'success',

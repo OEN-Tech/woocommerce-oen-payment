@@ -4,35 +4,40 @@ defined( 'ABSPATH' ) || exit;
 
 class OEN_API_Client {
 
-    private const PRODUCTION_API_URL = 'https://payment-api.oen.tw';
-    private const SANDBOX_API_URL    = 'https://payment-api.testing.oen.tw';
+    private const PRODUCTION_API_URL = 'https://api.oen.tw';
+    private const SANDBOX_API_URL    = 'https://api.testing.oen.tw';
 
     private const PRODUCTION_CHECKOUT_HOST = 'oen.tw';
     private const SANDBOX_CHECKOUT_HOST    = 'testing.oen.tw';
 
     private string $merchant_id;
-    private string $api_token;
+    private string $secret_key;
     private bool   $sandbox;
     private string $base_url;
 
-    public function __construct( string $merchant_id, string $api_token, bool $sandbox = false ) {
+    public function __construct( string $merchant_id, string $secret_key, bool $sandbox = false ) {
         $this->merchant_id = $merchant_id;
-        $this->api_token   = $api_token;
+        $this->secret_key  = $secret_key;
         $this->sandbox     = $sandbox;
         $this->base_url    = $sandbox ? self::SANDBOX_API_URL : self::PRODUCTION_API_URL;
     }
 
-    public function create_checkout( array $params ): array {
+    public function create_session( array $params ): array {
         $params['merchantId'] = $this->merchant_id;
         if ( ! isset( $params['currency'] ) ) {
             $params['currency'] = 'TWD';
         }
+        if ( empty( $params['orderId'] ) ) {
+            $params['orderId'] = uniqid( 'wc_', true );
+        }
+
         $response = wp_remote_post(
-            $this->base_url . '/checkout',
+            $this->base_url . '/hosted-checkout/v1/sessions',
             [
                 'headers' => [
-                    'Authorization' => 'Bearer ' . $this->api_token,
-                    'Content-Type'  => 'application/json',
+                    'Authorization'   => 'Bearer ' . $this->secret_key,
+                    'Content-Type'    => 'application/json',
+                    'Idempotency-Key' => $this->generate_idempotency_key( $params ),
                 ],
                 'body'    => wp_json_encode( $params ),
                 'timeout' => 30,
@@ -46,11 +51,25 @@ class OEN_API_Client {
             $this->base_url . '/transactions/' . urlencode( $transaction_id ),
             [
                 'headers' => [
-                    'Authorization' => 'Bearer ' . $this->api_token,
+                    'Authorization' => 'Bearer ' . $this->secret_key,
                 ],
                 'timeout' => 15,
             ]
         );
+        return $this->parse_response( $response );
+    }
+
+    public function get_session( string $session_id ): array {
+        $response = wp_remote_get(
+            $this->base_url . '/hosted-checkout/v1/sessions/' . urlencode( $session_id ),
+            [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $this->secret_key,
+                ],
+                'timeout' => 15,
+            ]
+        );
+
         return $this->parse_response( $response );
     }
 
@@ -61,14 +80,29 @@ class OEN_API_Client {
 
     public static function from_settings(): self {
         $merchant_id = get_option( 'oen_merchant_id', '' );
-        $api_token   = get_option( 'oen_api_token', '' );
+        $secret_key  = get_option( 'oen_api_token', '' );
         $sandbox     = 'yes' === get_option( 'oen_sandbox', 'no' );
-        if ( empty( $merchant_id ) || empty( $api_token ) ) {
+        if ( empty( $merchant_id ) || empty( $secret_key ) ) {
             throw new \RuntimeException(
-                __( 'OEN Payment is not configured. Please set MerchantID and API Token.', 'woocommerce-oen-payment' )
+                __( 'OEN Payment is not configured. Please set MerchantID and Secret Key.', 'woocommerce-oen-payment' )
             );
         }
-        return new self( $merchant_id, $api_token, $sandbox );
+        return new self( $merchant_id, $secret_key, $sandbox );
+    }
+
+    private function generate_idempotency_key( array $params ): string {
+        if ( ! empty( $params['orderId'] ) ) {
+            $normalized_order_id = strtolower( (string) $params['orderId'] );
+            $normalized_order_id = preg_replace( '/[^a-z0-9_\-]/', '-', $normalized_order_id ) ?? 'order';
+
+            return sprintf( 'wc-order-%s', trim( $normalized_order_id, '-' ) );
+        }
+
+        if ( function_exists( 'wp_generate_uuid4' ) ) {
+            return wp_generate_uuid4();
+        }
+
+        return uniqid( 'oen_', true );
     }
 
     private function parse_response( array|\WP_Error $response ): array {
