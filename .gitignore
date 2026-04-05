@@ -17,6 +17,7 @@ composer.lock
 
 # Node (if build tools added later)
 /node_modules/
+.worktrees/
 
 # Environment
 .env
