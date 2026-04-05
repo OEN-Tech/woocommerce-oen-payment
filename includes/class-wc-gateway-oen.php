@@ -213,34 +213,17 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
 
         $session_state = self::classify_reusable_session_response( $session );
 
-        if ( 'terminal' === $session_state ) {
-            return '';
-        }
-
         if ( 'unsafe' === $session_state ) {
             throw $this->get_reusable_session_verification_exception();
         }
 
-        $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
-        if ( '' === $response_session_id || $response_session_id !== $session_id ) {
-            throw $this->get_reusable_session_verification_exception();
+        $this->assert_verified_session_matches_order( $order, $session_id, $session );
+
+        if ( 'refreshable_terminal' === $session_state ) {
+            return '';
         }
 
-        $expected_order_id = sanitize_text_field(
-            (string) ( $this->build_checkout_params( $order )['orderId'] ?? '' )
-        );
-        $session_order_id  = sanitize_text_field( (string) ( $session['orderId'] ?? '' ) );
-
-        if ( '' === $expected_order_id || '' === $session_order_id || $session_order_id !== $expected_order_id ) {
-            throw $this->get_reusable_session_verification_exception();
-        }
-
-        if ( ! array_key_exists( 'amount', $session ) || '' === sanitize_text_field( (string) $session['amount'] ) ) {
-            throw $this->get_reusable_session_verification_exception();
-        }
-
-        $session_amount = intval( $session['amount'] );
-        if ( $session_amount !== intval( $order->get_total() ) ) {
+        if ( 'verified_success_terminal' === $session_state ) {
             throw $this->get_reusable_session_verification_exception();
         }
 
@@ -266,6 +249,40 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
     }
 
     /**
+     * Verify that a fetched Hosted Checkout session is still bound to the current order.
+     *
+     * @param \WC_Order             $order      WooCommerce order.
+     * @param string                $session_id Stored Hosted Checkout session id.
+     * @param array<string, mixed>  $session    Hosted Checkout session payload.
+     *
+     * @throws \RuntimeException When the stored session cannot be safely bound to the order.
+     */
+    protected function assert_verified_session_matches_order( \WC_Order $order, string $session_id, array $session ): void {
+        $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
+        if ( '' === $response_session_id || $response_session_id !== $session_id ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        $expected_order_id = sanitize_text_field(
+            (string) ( $this->build_checkout_params( $order )['orderId'] ?? '' )
+        );
+        $session_order_id  = sanitize_text_field( (string) ( $session['orderId'] ?? '' ) );
+
+        if ( '' === $expected_order_id || '' === $session_order_id || $session_order_id !== $expected_order_id ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        if ( ! array_key_exists( 'amount', $session ) || '' === sanitize_text_field( (string) $session['amount'] ) ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        $session_amount = intval( $session['amount'] );
+        if ( $session_amount !== intval( $order->get_total() ) ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+    }
+
+    /**
      * Treat non-terminal hosted checkout session states as reusable.
      *
      * @param array<string, mixed> $session Hosted checkout session payload.
@@ -277,37 +294,21 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
     /**
      * Classify whether a fetched Hosted Checkout session is safely reusable.
      *
-     * @return 'reusable'|'terminal'|'unsafe'
+     * @return 'reusable'|'refreshable_terminal'|'verified_success_terminal'|'unsafe'
      */
     protected static function classify_reusable_session_response( array $session ): string {
         $status = self::normalize_session_status( $session );
 
-        if ( '' !== $status ) {
-            return in_array(
-                $status,
-                [
-                    'completed',
-                    'charged',
-                    'failed',
-                    'expired',
-                    'cancelled',
-                ],
-                true
-            ) ? 'terminal' : 'reusable';
-        }
-
-        $lifecycle_status = self::normalize_session_lifecycle_status( $session );
-
-        if ( in_array( $lifecycle_status, [ 'failed', 'expired', 'cancelled' ], true ) ) {
-            return 'terminal';
-        }
-
-        if ( in_array( $lifecycle_status, [ 'completed', 'charged' ], true ) ) {
+        if ( '' === $status ) {
             return 'unsafe';
         }
 
-        if ( '' === $lifecycle_status ) {
-            return 'unsafe';
+        if ( in_array( $status, [ 'failed', 'expired', 'cancelled' ], true ) ) {
+            return 'refreshable_terminal';
+        }
+
+        if ( in_array( $status, [ 'completed', 'charged' ], true ) ) {
+            return 'verified_success_terminal';
         }
 
         return 'reusable';
@@ -334,15 +335,6 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
         }
 
         return '';
-    }
-
-    /**
-     * Normalize the top-level Hosted Checkout lifecycle status.
-     *
-     * @param array<string, mixed> $session Hosted checkout session payload.
-     */
-    protected static function normalize_session_lifecycle_status( array $session ): string {
-        return sanitize_text_field( (string) ( $session['status'] ?? '' ) );
     }
 
     /**

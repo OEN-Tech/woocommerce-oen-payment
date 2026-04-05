@@ -377,6 +377,9 @@ function test_process_payment_reuses_existing_reusable_session(): void {
                 'orderId'     => 'wc-order-1001',
                 'amount'      => 1234,
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_existing',
+                'transaction' => [
+                    'status' => 'pending',
+                ],
             ],
         ] ),
     ];
@@ -423,6 +426,9 @@ function test_process_payment_fails_closed_for_mismatched_reusable_session(): vo
                 'orderId'     => 'wc-order-9999',
                 'amount'      => 4321,
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_existing',
+                'transaction' => [
+                    'status' => 'pending',
+                ],
             ],
         ] ),
     ];
@@ -500,6 +506,168 @@ function test_process_payment_fails_closed_for_ambiguous_completed_reusable_sess
     );
 }
 
+function test_process_payment_fails_closed_for_pending_session_without_authoritative_status(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1006, 8642 );
+    $order->update_meta_data( '_oen_session_id', 'sess_pending' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_pending' );
+    $GLOBALS['test_wc_orders'][1006] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_pending',
+                'status'      => 'pending',
+                'orderId'     => 'wc-order-1006',
+                'amount'      => 8642,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_pending',
+            ],
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_should_not_exist',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_should_not_exist',
+            ],
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1006 );
+
+    test_assert(
+        'failure' === ( $result['result'] ?? null ),
+        'process_payment() should fail closed when transaction.status is missing, even if top-level session status is pending.'
+    );
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'process_payment() should not create a new session when authoritative transaction.status is missing.'
+    );
+}
+
+function test_process_payment_fails_closed_for_authoritative_charged_session(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1005, 1357 );
+    $order->update_meta_data( '_oen_session_id', 'sess_charged' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_charged' );
+    $GLOBALS['test_wc_orders'][1005] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_charged',
+                'status'      => 'pending',
+                'orderId'     => 'wc-order-1005',
+                'amount'      => 1357,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_charged',
+                'transaction' => [
+                    'status' => 'charged',
+                ],
+            ],
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_should_not_exist',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_should_not_exist',
+            ],
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1005 );
+
+    test_assert(
+        'failure' === ( $result['result'] ?? null ),
+        'process_payment() should fail closed when session verification returns an authoritative charged status.'
+    );
+    test_assert(
+        ! isset( $result['redirect'] ),
+        'process_payment() should not return a fresh checkout URL when the current session is already charged.'
+    );
+    test_assert(
+        1 === count( $GLOBALS['test_http_get_calls'] ),
+        'process_payment() should verify the stored charged session before making a retry decision.'
+    );
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'process_payment() should not create a new session when the current session is already charged.'
+    );
+    test_assert(
+        'error' === ( $GLOBALS['test_wc_notices'][0]['type'] ?? null ),
+        'process_payment() should surface charged-session retry blocks through the existing error notice path.'
+    );
+}
+
+function test_process_payment_fails_closed_for_unverified_failure_terminal_session(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1007, 9753 );
+    $order->update_meta_data( '_oen_session_id', 'sess_failed' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_failed' );
+    $GLOBALS['test_wc_orders'][1007] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_failed',
+                'status'      => 'failed',
+                'orderId'     => 'wc-order-9999',
+                'amount'      => 9753,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_failed',
+                'transaction' => [
+                    'status' => 'failed',
+                ],
+            ],
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_should_not_exist',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_should_not_exist',
+            ],
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1007 );
+
+    test_assert(
+        'failure' === ( $result['result'] ?? null ),
+        'process_payment() should fail closed when a failure-terminal session cannot be safely bound to the current order.'
+    );
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'process_payment() should not refresh a failure-terminal session before session/order/amount verification succeeds.'
+    );
+}
+
 function test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid(): void {
     test_reset_http_stubs();
 
@@ -517,8 +685,13 @@ function test_process_payment_refreshes_terminal_session_and_clears_stale_transa
         'body'     => wp_json_encode( [
             'code' => 'S0000',
             'data' => [
-                'id'     => 'sess_old',
-                'status' => 'expired',
+                'id'      => 'sess_old',
+                'status'  => 'expired',
+                'orderId' => 'wc-order-1002',
+                'amount'  => 5678,
+                'transaction' => [
+                    'status' => 'expired',
+                ],
             ],
         ] ),
     ];
@@ -565,6 +738,9 @@ test_get_session_uses_hosted_checkout_contract();
 test_process_payment_reuses_existing_reusable_session();
 test_process_payment_fails_closed_for_mismatched_reusable_session();
 test_process_payment_fails_closed_for_ambiguous_completed_reusable_session();
+test_process_payment_fails_closed_for_pending_session_without_authoritative_status();
+test_process_payment_fails_closed_for_authoritative_charged_session();
+test_process_payment_fails_closed_for_unverified_failure_terminal_session();
 test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid();
 
 echo "API client smoke harness passed.\n";
