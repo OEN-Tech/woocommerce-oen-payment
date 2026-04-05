@@ -7,15 +7,31 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 class TestWpError {
+    private string $code;
     private string $message;
+    private mixed $data;
 
-    public function __construct( string $message ) {
+    public function __construct( string $message, string $code = '', mixed $data = null ) {
         $this->message = $message;
+        $this->code    = $code;
+        $this->data    = $data;
     }
 
     public function get_error_message(): string {
         return $this->message;
     }
+
+    public function get_error_code(): string {
+        return $this->code;
+    }
+
+    public function get_error_data(): mixed {
+        return $this->data;
+    }
+}
+
+if ( ! class_exists( 'WP_Error', false ) ) {
+    class_alias( TestWpError::class, 'WP_Error' );
 }
 
 $GLOBALS['test_options']           = $GLOBALS['test_options'] ?? [];
@@ -29,22 +45,28 @@ function __( string $text, string $domain = '' ): string {
 }
 
 function is_wp_error( mixed $value ): bool {
-    return $value instanceof TestWpError;
+    return $value instanceof TestWpError || $value instanceof WP_Error;
 }
 
 function get_option( string $option, mixed $default = false ): mixed {
     return $GLOBALS['test_options'][ $option ] ?? $default;
 }
 
-function wp_remote_retrieve_response_code( array $response ): int {
+function wp_remote_retrieve_response_code( mixed $response ): int {
+    if ( is_wp_error( $response ) ) {
+        return 0;
+    }
     return (int) ( $response['response']['code'] ?? 0 );
 }
 
-function wp_remote_retrieve_body( array $response ): string {
+function wp_remote_retrieve_body( mixed $response ): string {
+    if ( is_wp_error( $response ) ) {
+        return '';
+    }
     return (string) ( $response['body'] ?? '' );
 }
 
-function wp_remote_post( string $url, array $args = [] ): array {
+function wp_remote_post( string $url, array $args = [] ): array|TestWpError {
     $GLOBALS['test_http_post_calls'][] = [
         'url'  => $url,
         'args' => $args,
@@ -59,7 +81,7 @@ function wp_remote_post( string $url, array $args = [] ): array {
     ];
 }
 
-function wp_remote_get( string $url, array $args = [] ): array {
+function wp_remote_get( string $url, array $args = [] ): array|TestWpError {
     $GLOBALS['test_http_get_calls'][] = [
         'url'  => $url,
         'args' => $args,

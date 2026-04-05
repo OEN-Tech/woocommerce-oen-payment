@@ -46,6 +46,23 @@ function test_create_session_uses_hosted_checkout_contract(): void {
         'POST authorization should use the secret key.'
     );
     test_assert(
+        ( $GLOBALS['test_http_post_calls'][0]['args']['headers']['Content-Type'] ?? null ) === 'application/json',
+        'POST should send JSON content type.'
+    );
+    $decoded_body = json_decode( (string) ( $GLOBALS['test_http_post_calls'][0]['args']['body'] ?? '' ), true );
+    test_assert(
+        json_last_error() === JSON_ERROR_NONE,
+        'POST body should decode as JSON.'
+    );
+    test_assert(
+        isset( $decoded_body['amount'], $decoded_body['orderId'], $decoded_body['currency'] ),
+        'POST payload should include amount, orderId, and currency.'
+    );
+    test_assert(
+        ( $decoded_body['merchantId'] ?? null ) === 'merchant-123',
+        'POST payload should include merchantId when the contract still requires it.'
+    );
+    test_assert(
         ( $result['checkoutUrl'] ?? null ) === 'https://oen.tw/checkout/sess_123',
         'create_session() should return checkoutUrl.'
     );
