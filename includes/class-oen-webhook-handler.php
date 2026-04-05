@@ -111,7 +111,7 @@ class OEN_Webhook_Handler {
                 } else {
                     $resolution = self::resolve_event_action(
                         $payload['type'],
-                        sanitize_text_field( (string) ( $verified_payment['status'] ?? '' ) )
+                        self::get_verified_payment_status( $verified_payment )
                     );
 
                     if ( 'success' === $resolution ) {
@@ -196,6 +196,25 @@ class OEN_Webhook_Handler {
         }
 
         return 'ignore';
+    }
+
+    /**
+     * Normalize the authoritative payment status from a verified Hosted Checkout session payload.
+     *
+     * Prefer the nested transaction status when present to avoid contradictory
+     * interpretations between session lifecycle state and payment outcome state.
+     *
+     * @param array<string, mixed> $session Verified Hosted Checkout session payload.
+     */
+    public static function normalize_verified_session_status( array $session ): string {
+        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
+        $status      = sanitize_text_field( (string) ( $transaction['status'] ?? '' ) );
+
+        if ( '' !== $status ) {
+            return $status;
+        }
+
+        return sanitize_text_field( (string) ( $session['status'] ?? '' ) );
     }
 
     /**
@@ -284,6 +303,21 @@ class OEN_Webhook_Handler {
     }
 
     /**
+     * Normalize the status value from verified payment data before order transitions.
+     *
+     * @param array<string, mixed> $verified_payment Verified payment data.
+     */
+    private static function get_verified_payment_status( array $verified_payment ): string {
+        $status = sanitize_text_field( (string) ( $verified_payment['status'] ?? '' ) );
+
+        if ( '' !== $status ) {
+            return $status;
+        }
+
+        return self::normalize_verified_session_status( $verified_payment );
+    }
+
+    /**
      * Log an ignored event whose type does not align with the verified status.
      *
      * @param \WC_Order            $order       The WooCommerce order.
@@ -296,7 +330,7 @@ class OEN_Webhook_Handler {
                 'Ignoring webhook for order #%d: type=%s, verified_status=%s',
                 $order->get_id(),
                 sanitize_text_field( $event_type ),
-                sanitize_text_field( (string) ( $transaction['status'] ?? 'unknown' ) )
+                self::get_verified_payment_status( $transaction ) ?: 'unknown'
             )
         );
     }
@@ -406,7 +440,7 @@ class OEN_Webhook_Handler {
             'transactionHid' => sanitize_text_field( (string) ( $transaction['transactionHid'] ?? $session['transactionHid'] ?? '' ) ),
             'transactionId'  => sanitize_text_field( (string) ( $transaction['transactionId'] ?? $session['transactionId'] ?? $transaction['id'] ?? '' ) ),
             'orderId'        => sanitize_text_field( (string) ( $session['orderId'] ?? $transaction['orderId'] ?? '' ) ),
-            'status'         => sanitize_text_field( (string) ( $transaction['status'] ?? $session['status'] ?? '' ) ),
+            'status'         => self::normalize_verified_session_status( $session ),
             'amount'         => $transaction['amount'] ?? $session['amount'] ?? null,
             'paymentInfo'    => $payment_info,
         ];
@@ -472,7 +506,7 @@ class OEN_Webhook_Handler {
     private function handle_success( \WC_Order $order, array $transaction ): void {
         $transaction_hid = $transaction['transactionHid'] ?? '';
         $transaction_id  = $transaction['transactionId'] ?? '';
-        $status          = sanitize_text_field( $transaction['status'] ?? '' );
+        $status          = self::get_verified_payment_status( $transaction );
 
         if ( ! in_array( $status, [ 'completed', 'charged' ], true ) ) {
             $this->log(
@@ -529,7 +563,11 @@ class OEN_Webhook_Handler {
      * @param array     $transaction Verified transaction data from OEN API.
      */
     private function handle_failure( \WC_Order $order, array $transaction ): void {
-        $status = sanitize_text_field( $transaction['status'] ?? 'unknown' );
+        $status = self::get_verified_payment_status( $transaction );
+
+        if ( '' === $status ) {
+            $status = 'unknown';
+        }
 
         $order->update_status(
             'failed',
@@ -558,7 +596,7 @@ class OEN_Webhook_Handler {
         // Non-blocking: timeout 0 means return immediately if lock is held.
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $result = $wpdb->get_var(
-            $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $wpdb->prefix . 'oen_webhook_' . $order_id )
+            $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $this->get_lock_name( $order_id ) )
         );
 
         // GET_LOCK returns: 1 = acquired, 0 = held by another, NULL = error.
@@ -579,8 +617,19 @@ class OEN_Webhook_Handler {
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $wpdb->query(
-            $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $wpdb->prefix . 'oen_webhook_' . $order_id )
+            $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->get_lock_name( $order_id ) )
         );
+    }
+
+    /**
+     * Build the shared advisory lock name for a specific order.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    private function get_lock_name( int $order_id ): string {
+        global $wpdb;
+
+        return $wpdb->prefix . 'oen_order_' . $order_id;
     }
 
     /**

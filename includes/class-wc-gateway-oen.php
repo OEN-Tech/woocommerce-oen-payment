@@ -101,18 +101,41 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             return [ 'result' => 'failure' ];
         }
 
+        if ( ! $this->acquire_order_lock( $order_id ) ) {
+            wc_add_notice(
+                __( 'Another OEN checkout attempt is already being prepared for this order. Please wait a moment and try again.', 'woocommerce-oen-payment' ),
+                'error'
+            );
+            return [ 'result' => 'failure' ];
+        }
+
         try {
+            $order = wc_get_order( $order_id );
+
+            if ( ! $order ) {
+                wc_add_notice(
+                    __( 'Order not found.', 'woocommerce-oen-payment' ),
+                    'error'
+                );
+                return [ 'result' => 'failure' ];
+            }
+
+            if ( $order->is_paid() ) {
+                return [
+                    'result'   => 'success',
+                    'redirect' => $this->get_return_url( $order ),
+                ];
+            }
+
             $client = OEN_API_Client::from_settings();
 
-            if ( ! $order->is_paid() ) {
-                $reusable_checkout_url = $this->get_reusable_checkout_url( $order, $client );
+            $reusable_checkout_url = $this->get_reusable_checkout_url( $order, $client );
 
-                if ( '' !== $reusable_checkout_url ) {
-                    return [
-                        'result'   => 'success',
-                        'redirect' => $reusable_checkout_url,
-                    ];
-                }
+            if ( '' !== $reusable_checkout_url ) {
+                return [
+                    'result'   => 'success',
+                    'redirect' => $reusable_checkout_url,
+                ];
             }
 
             $params = $this->build_checkout_params( $order );
@@ -157,6 +180,8 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
         } catch ( \RuntimeException $e ) {
             wc_add_notice( $e->getMessage(), 'error' );
             return [ 'result' => 'failure' ];
+        } finally {
+            $this->release_order_lock( $order_id );
         }
     }
 
@@ -167,6 +192,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
      * @param \WC_Order       $order  WooCommerce order.
      * @param OEN_API_Client  $client API client.
      * @return string Reusable checkout URL, or empty string when a fresh attempt is needed.
+     * @throws \RuntimeException When the stored session cannot be verified safely.
      */
     protected function get_reusable_checkout_url( \WC_Order $order, OEN_API_Client $client ): string {
         $session_id = sanitize_text_field( (string) $order->get_meta( '_oen_session_id' ) );
@@ -178,7 +204,11 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
         try {
             $session = $client->get_session( $session_id );
         } catch ( \Throwable $exception ) {
-            return '';
+            throw new \RuntimeException(
+                __( 'We could not verify your existing OEN checkout session. Please try again in a moment.', 'woocommerce-oen-payment' ),
+                0,
+                $exception
+            );
         }
 
         if ( ! self::is_reusable_session_response( $session ) ) {
@@ -196,6 +226,12 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             }
         }
 
+        if ( '' === $checkout_url ) {
+            throw new \RuntimeException(
+                __( 'Your existing OEN checkout session is still active, but its checkout URL is unavailable. Please try again in a moment.', 'woocommerce-oen-payment' )
+            );
+        }
+
         return $checkout_url;
     }
 
@@ -205,9 +241,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
      * @param array<string, mixed> $session Hosted checkout session payload.
      */
     protected static function is_reusable_session_response( array $session ): bool {
-        $status = sanitize_text_field(
-            (string) ( $session['status'] ?? $session['transaction']['status'] ?? '' )
-        );
+        $status = self::normalize_session_status( $session );
 
         if ( '' === $status ) {
             return false;
@@ -224,6 +258,84 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             ],
             true
         );
+    }
+
+    /**
+     * Normalize verified Hosted Checkout session status.
+     *
+     * Prefer the nested transaction status when present because it reflects the
+     * authoritative payment outcome returned by the session verification API.
+     *
+     * @param array<string, mixed> $session Hosted checkout session payload.
+     */
+    protected static function normalize_session_status( array $session ): string {
+        if ( class_exists( 'OEN_Webhook_Handler' ) && method_exists( 'OEN_Webhook_Handler', 'normalize_verified_session_status' ) ) {
+            return OEN_Webhook_Handler::normalize_verified_session_status( $session );
+        }
+
+        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
+        $status      = sanitize_text_field( (string) ( $transaction['status'] ?? '' ) );
+
+        if ( '' !== $status ) {
+            return $status;
+        }
+
+        return sanitize_text_field( (string) ( $session['status'] ?? '' ) );
+    }
+
+    /**
+     * Acquire a per-order advisory lock before deciding whether to reuse or create a session.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    protected function acquire_order_lock( int $order_id ): bool {
+        global $wpdb;
+
+        if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+            return true;
+        }
+
+        // Wait briefly so duplicate clicks can reuse the first attempt instead of failing open.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $result = $wpdb->get_var(
+            $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $this->get_order_lock_name( $order_id ) )
+        );
+
+        return '1' === (string) $result;
+    }
+
+    /**
+     * Release the per-order advisory lock.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    protected function release_order_lock( int $order_id ): void {
+        global $wpdb;
+
+        if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'query' ) ) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->query(
+            $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->get_order_lock_name( $order_id ) )
+        );
+    }
+
+    /**
+     * Build the advisory lock name for an order-scoped Hosted Checkout attempt.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    protected function get_order_lock_name( int $order_id ): string {
+        global $wpdb;
+
+        $prefix = '';
+        if ( isset( $wpdb ) && is_object( $wpdb ) && isset( $wpdb->prefix ) && is_string( $wpdb->prefix ) ) {
+            $prefix = $wpdb->prefix;
+        }
+
+        return $prefix . 'oen_order_' . $order_id;
     }
 
     /**

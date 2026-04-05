@@ -28,7 +28,7 @@ Features:
 * Sandbox/production environment switching
 * Traditional Chinese (zh_TW) and English language support
 * WooCommerce HPOS compatible
-* Reuses an active Hosted Checkout session for repeated unpaid checkout attempts
+* Verifies and reuses an active Hosted Checkout session inside an order-level advisory lock for repeated unpaid checkout attempts
 
 == Installation ==
 
@@ -45,7 +45,8 @@ Hosted Checkout Session API:
 * Use `Authorization: Bearer <Secret Key>` for Hosted Checkout Session API calls
 * The v1 secret-key contract does not require `merchantId`; the plugin sends `successUrl`, `failureUrl`, and `cancelUrl` instead
 * If the create response omits the session `id`, checkout fails instead of storing an empty `_oen_session_id`
-* If the same unpaid order re-enters checkout, the plugin first verifies the stored `_oen_session_id` with `GET /hosted-checkout/v1/sessions/{sessionId}` and reuses the saved `_oen_checkout_url` while that session is still in flight
+* If the same unpaid order re-enters checkout, the plugin first verifies the stored `_oen_session_id` inside an order-level advisory lock with `GET /hosted-checkout/v1/sessions/{sessionId}` and reuses the saved `_oen_checkout_url` while that session is still in flight
+* If stored-session verification fails, checkout fails closed instead of silently creating a new live session
 * A fresh session is created only after the previous one is in a terminal state such as `completed`, `charged`, `failed`, `expired`, or `cancelled`
 
 Webhook contract:
@@ -56,7 +57,7 @@ Webhook contract:
 * Webhook payloads arrive as an event envelope with the event `type` plus business payload nested under `data`
 * Hosted Checkout session ids are read from `data.id` with `data.sessionId` kept as a backward-compatible fallback
 * The current Hosted Checkout event types are `checkout_session.completed`, `checkout_session.failed`, `checkout_session.expired`, and `checkout_session.cancelled`
-* When a session id is present, the webhook handler prefers `GET /hosted-checkout/v1/sessions/{sessionId}` verification and uses session statuses `completed`, `failed`, `expired`, and `cancelled`
+* When a session id is present, the webhook handler prefers `GET /hosted-checkout/v1/sessions/{sessionId}` verification and normalizes the verified session status through one helper path that prefers nested `transaction.status` before top-level `status`
 * `transactionHid` verification remains a fallback only when the webhook does not contain a session id
 * Stale-attempt protection is primarily bound to `_oen_session_id`, so a matching current session id is accepted even if an older stored `_oen_transaction_hid` differs
 * After verified success, the plugin writes authoritative `transactionHid` and `transactionId` values back to order meta
