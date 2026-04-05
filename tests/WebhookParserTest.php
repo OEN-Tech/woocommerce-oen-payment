@@ -188,6 +188,21 @@ function test_handler_prefers_matching_session_id_over_older_transaction_hid(): 
     );
 }
 
+function test_handler_rejects_session_only_attempt_without_stored_session_or_matching_transaction_hid(): void {
+    $reason = OEN_Webhook_Handler::detect_attempt_mismatch(
+        '',
+        '',
+        [
+            'sessionId' => 'sess_unverifiable',
+        ]
+    );
+
+    test_assert(
+        is_string( $reason ) && str_contains( $reason, 'unverifiable sessionId' ),
+        'Session-only verification should fail closed when the order lacks a stored session ID and no authoritative transactionHid match is available.'
+    );
+}
+
 function test_handler_maps_hosted_checkout_event_names_and_statuses(): void {
     $success_resolution = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.completed', 'completed' );
     $failure_resolution = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.cancelled', 'cancelled' );
@@ -213,6 +228,7 @@ test_parser_rejects_stale_signature_timestamp();
 test_handler_treats_missing_session_id_as_stale_when_order_has_stored_session();
 test_handler_allows_session_only_verified_attempt_when_session_matches();
 test_handler_prefers_matching_session_id_over_older_transaction_hid();
+test_handler_rejects_session_only_attempt_without_stored_session_or_matching_transaction_hid();
 test_handler_maps_hosted_checkout_event_names_and_statuses();
 
 echo "Webhook parser smoke harness passed.\n";

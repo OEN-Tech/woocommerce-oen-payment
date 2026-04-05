@@ -62,6 +62,7 @@ Webhook contract:
 * Stale-attempt protection is primarily bound to `_oen_session_id`, so a matching current session id is accepted even if an older stored `_oen_transaction_hid` differs
 * After verified success, the plugin writes authoritative `transactionHid` and `transactionId` values back to order meta
 * If the order stores `_oen_session_id`, any webhook missing that session id or carrying a different one is treated as stale and safely ignored
+* If the order does not store `_oen_session_id`, any session-only webhook without an authoritative matching `transactionHid` is treated as unverifiable stale risk and safely ignored
 
 Example webhook envelope:
 

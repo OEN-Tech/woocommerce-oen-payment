@@ -245,6 +245,13 @@ class OEN_Webhook_Handler {
             return null;
         }
 
+        if ( '' !== $incoming_session_id && ( '' === $stored_transaction_hid || '' === $incoming_transaction ) ) {
+            return sprintf(
+                'unverifiable sessionId=%s without stored session binding or matching transactionHid',
+                $incoming_session_id
+            );
+        }
+
         if ( '' !== $stored_transaction_hid && '' !== $incoming_transaction && $stored_transaction_hid !== $incoming_transaction ) {
             return sprintf( 'transactionHid=%s, expected=%s', $incoming_transaction, $stored_transaction_hid );
         }
