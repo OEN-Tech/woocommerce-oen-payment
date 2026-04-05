@@ -215,16 +215,36 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             return '';
         }
 
-        $checkout_url = sanitize_text_field( (string) $order->get_meta( '_oen_checkout_url' ) );
+        $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
+        if ( '' === $response_session_id || $response_session_id !== $session_id ) {
+            return '';
+        }
 
-        if ( '' === $checkout_url ) {
-            $checkout_url = sanitize_text_field( (string) ( $session['checkoutUrl'] ?? '' ) );
+        $expected_order_id = sanitize_text_field(
+            (string) ( $this->build_checkout_params( $order )['orderId'] ?? '' )
+        );
+        $session_order_id  = sanitize_text_field( (string) ( $session['orderId'] ?? '' ) );
 
-            if ( '' !== $checkout_url ) {
+        if ( '' === $expected_order_id || $session_order_id !== $expected_order_id ) {
+            return '';
+        }
+
+        $session_amount = intval( $session['amount'] ?? 0 );
+        if ( $session_amount !== intval( $order->get_total() ) ) {
+            return '';
+        }
+
+        $checkout_url = sanitize_text_field( (string) ( $session['checkoutUrl'] ?? '' ) );
+        if ( '' !== $checkout_url ) {
+            if ( $checkout_url !== sanitize_text_field( (string) $order->get_meta( '_oen_checkout_url' ) ) ) {
                 $order->update_meta_data( '_oen_checkout_url', $checkout_url );
                 $order->save();
             }
+
+            return $checkout_url;
         }
+
+        $checkout_url = sanitize_text_field( (string) $order->get_meta( '_oen_checkout_url' ) );
 
         if ( '' === $checkout_url ) {
             throw new \RuntimeException(

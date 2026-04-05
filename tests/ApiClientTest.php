@@ -364,7 +364,7 @@ function test_process_payment_reuses_existing_reusable_session(): void {
 
     $order = new WC_Order( 1001, 1234 );
     $order->update_meta_data( '_oen_session_id', 'sess_existing' );
-    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_existing' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/stale_existing' );
     $GLOBALS['test_wc_orders'][1001] = $order;
 
     $GLOBALS['test_http_get_queue'][] = [
@@ -374,6 +374,8 @@ function test_process_payment_reuses_existing_reusable_session(): void {
             'data' => [
                 'id'          => 'sess_existing',
                 'status'      => 'pending',
+                'orderId'     => 'wc-order-1001',
+                'amount'      => 1234,
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_existing',
             ],
         ] ),
@@ -388,7 +390,7 @@ function test_process_payment_reuses_existing_reusable_session(): void {
     );
     test_assert(
         'https://oen.tw/checkout/sess_existing' === ( $result['redirect'] ?? null ),
-        'process_payment() should redirect back to the reusable checkout URL instead of creating a new session.'
+        'process_payment() should prefer the checkout URL returned by the API over the stored checkout URL.'
     );
     test_assert(
         1 === count( $GLOBALS['test_http_get_calls'] ),
@@ -397,6 +399,62 @@ function test_process_payment_reuses_existing_reusable_session(): void {
     test_assert(
         0 === count( $GLOBALS['test_http_post_calls'] ),
         'process_payment() should not create a new session when the current one is still reusable.'
+    );
+}
+
+function test_process_payment_rejects_mismatched_reusable_session_and_creates_new_attempt(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1003, 4321 );
+    $order->update_meta_data( '_oen_session_id', 'sess_existing' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_existing' );
+    $GLOBALS['test_wc_orders'][1003] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_existing',
+                'status'      => 'pending',
+                'orderId'     => 'wc-order-9999',
+                'amount'      => 4321,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_existing',
+            ],
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'id'          => 'sess_fresh',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_fresh',
+            ],
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1003 );
+
+    test_assert(
+        'success' === ( $result['result'] ?? null ),
+        'process_payment() should still succeed by creating a new attempt when the stored session is not safe to reuse.'
+    );
+    test_assert(
+        'https://oen.tw/checkout/sess_fresh' === ( $result['redirect'] ?? null ),
+        'process_payment() should ignore a mismatched reusable session and redirect to the fresh checkout URL.'
+    );
+    test_assert(
+        1 === count( $GLOBALS['test_http_get_calls'] ),
+        'process_payment() should inspect the stored session before discarding it.'
+    );
+    test_assert(
+        1 === count( $GLOBALS['test_http_post_calls'] ),
+        'process_payment() should create a new session when the fetched session does not match the current order.'
     );
 }
 
@@ -463,6 +521,7 @@ test_create_session_rejects_missing_session_id();
 test_create_session_uses_unique_idempotency_key_per_attempt();
 test_get_session_uses_hosted_checkout_contract();
 test_process_payment_reuses_existing_reusable_session();
+test_process_payment_rejects_mismatched_reusable_session_and_creates_new_attempt();
 test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid();
 
 echo "API client smoke harness passed.\n";
