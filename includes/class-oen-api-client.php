@@ -37,7 +37,7 @@ class OEN_API_Client {
                 'headers' => [
                     'Authorization'   => 'Bearer ' . $this->secret_key,
                     'Content-Type'    => 'application/json',
-                    'Idempotency-Key' => $this->generate_idempotency_key( $params ),
+                    'Idempotency-Key' => $this->generate_idempotency_key(),
                 ],
                 'body'    => wp_json_encode( $params ),
                 'timeout' => 30,
@@ -90,19 +90,16 @@ class OEN_API_Client {
         return new self( $merchant_id, $secret_key, $sandbox );
     }
 
-    private function generate_idempotency_key( array $params ): string {
-        if ( ! empty( $params['orderId'] ) ) {
-            $normalized_order_id = strtolower( (string) $params['orderId'] );
-            $normalized_order_id = preg_replace( '/[^a-z0-9_\-]/', '-', $normalized_order_id ) ?? 'order';
-
-            return sprintf( 'wc-order-%s', trim( $normalized_order_id, '-' ) );
-        }
-
+    private function generate_idempotency_key(): string {
         if ( function_exists( 'wp_generate_uuid4' ) ) {
-            return wp_generate_uuid4();
+            return 'session-attempt-' . wp_generate_uuid4();
         }
 
-        return uniqid( 'oen_', true );
+        try {
+            return 'session-attempt-' . bin2hex( random_bytes( 16 ) );
+        } catch ( \Exception $exception ) {
+            return uniqid( 'session-attempt-', true );
+        }
     }
 
     private function parse_response( array|\WP_Error $response ): array {

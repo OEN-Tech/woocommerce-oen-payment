@@ -110,8 +110,16 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             $oen_order_id = $params['orderId'];
             $order->update_meta_data( '_oen_order_id', $oen_order_id );
             $order->update_meta_data( '_oen_session_id', $result['id'] ?? '' );
-            $order->update_meta_data( '_oen_transaction_id', $result['transactionId'] ?? ( $result['id'] ?? '' ) );
-            $order->update_meta_data( '_oen_transaction_hid', $result['transactionHid'] ?? '' );
+            if ( ! empty( $result['transactionId'] ) ) {
+                $order->update_meta_data( '_oen_transaction_id', $result['transactionId'] );
+            } else {
+                $order->delete_meta_data( '_oen_transaction_id' );
+            }
+            if ( ! empty( $result['transactionHid'] ) ) {
+                $order->update_meta_data( '_oen_transaction_hid', $result['transactionHid'] );
+            } else {
+                $order->delete_meta_data( '_oen_transaction_hid' );
+            }
             $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
             $order->save();
 

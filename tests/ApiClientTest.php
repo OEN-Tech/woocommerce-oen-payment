@@ -49,6 +49,11 @@ function test_create_session_uses_hosted_checkout_contract(): void {
         ( $GLOBALS['test_http_post_calls'][0]['args']['headers']['Content-Type'] ?? null ) === 'application/json',
         'POST should send JSON content type.'
     );
+    test_assert(
+        is_string( $GLOBALS['test_http_post_calls'][0]['args']['headers']['Idempotency-Key'] ?? null )
+            && '' !== ( $GLOBALS['test_http_post_calls'][0]['args']['headers']['Idempotency-Key'] ?? '' ),
+        'POST should send a non-empty Idempotency-Key header.'
+    );
     $decoded_body = json_decode( (string) ( $GLOBALS['test_http_post_calls'][0]['args']['body'] ?? '' ), true );
     test_assert(
         json_last_error() === JSON_ERROR_NONE,
@@ -65,6 +70,52 @@ function test_create_session_uses_hosted_checkout_contract(): void {
     test_assert(
         ( $result['checkoutUrl'] ?? null ) === 'https://oen.tw/checkout/sess_123',
         'create_session() should return checkoutUrl.'
+    );
+}
+
+function test_create_session_uses_unique_idempotency_key_per_attempt(): void {
+    test_reset_http_stubs();
+
+    $client = new OEN_API_Client( 'merchant-123', 'sk_test_secret' );
+
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_123',
+            ],
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'code' => 'S0000',
+            'data' => [
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_456',
+            ],
+        ] ),
+    ];
+
+    $params = [
+        'amount'   => 1234,
+        'currency' => 'TWD',
+        'orderId'  => 'wc-order-1001',
+    ];
+
+    $client->create_session( $params );
+    $client->create_session( $params );
+
+    $first_key  = $GLOBALS['test_http_post_calls'][0]['args']['headers']['Idempotency-Key'] ?? null;
+    $second_key = $GLOBALS['test_http_post_calls'][1]['args']['headers']['Idempotency-Key'] ?? null;
+
+    test_assert(
+        is_string( $first_key ) && is_string( $second_key ),
+        'Each create_session() attempt should send an Idempotency-Key header.'
+    );
+    test_assert(
+        $first_key !== $second_key,
+        'Idempotency-Key should be unique per checkout attempt, even for the same orderId.'
     );
 }
 
@@ -106,6 +157,7 @@ function test_get_session_uses_hosted_checkout_contract(): void {
 }
 
 test_create_session_uses_hosted_checkout_contract();
+test_create_session_uses_unique_idempotency_key_per_attempt();
 test_get_session_uses_hosted_checkout_contract();
 
 echo "API client smoke harness passed.\n";
