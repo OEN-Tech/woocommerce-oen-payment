@@ -105,19 +105,17 @@ class OEN_Webhook_Handler {
                 } elseif ( ! $this->is_current_attempt( $order, $transaction ) ) {
                     $response = [ 'status' => 'ok', 'message' => 'Stale event ignored' ];
                 } else {
-                    if ( $this->is_success_event( $payload['type'] ) ) {
+                    $resolution = self::resolve_event_action(
+                        $payload['type'],
+                        sanitize_text_field( (string) ( $transaction['status'] ?? '' ) )
+                    );
+
+                    if ( 'success' === $resolution ) {
                         $this->handle_success( $order, $transaction );
-                    } elseif ( $this->is_failure_event( $payload['type'] ) ) {
+                    } elseif ( 'failure' === $resolution ) {
                         $this->handle_failure( $order, $transaction );
                     } else {
-                        $this->log(
-                            sprintf(
-                                'Ignoring non-terminal webhook event for order #%d: type=%s, status=%s',
-                                $order->get_id(),
-                                $payload['type'],
-                                sanitize_text_field( $transaction['status'] ?? 'unknown' )
-                            )
-                        );
+                        $this->log_event_status_mismatch( $order, $payload['type'], $transaction );
                         $response = [ 'status' => 'ok', 'message' => 'Event ignored' ];
                     }
                 }
@@ -152,38 +150,87 @@ class OEN_Webhook_Handler {
         $stored_transaction_hid = sanitize_text_field( (string) $order->get_meta( '_oen_transaction_hid' ) );
         $incoming_session_id    = sanitize_text_field( (string) ( $payload['sessionId'] ?? '' ) );
         $incoming_transaction   = sanitize_text_field( (string) ( $payload['transactionHid'] ?? '' ) );
+        $mismatch_reason        = self::detect_attempt_mismatch(
+            $stored_session_id,
+            $stored_transaction_hid,
+            [
+                'sessionId'      => $incoming_session_id,
+                'transactionHid' => $incoming_transaction,
+            ]
+        );
 
-        if ( '' !== $stored_session_id && '' !== $incoming_session_id && $stored_session_id !== $incoming_session_id ) {
-            $this->log(
-                sprintf(
-                    'Ignoring stale webhook for order #%d: sessionId=%s, expected=%s',
-                    $order->get_id(),
-                    $incoming_session_id,
-                    $stored_session_id
-                )
-            );
-            return false;
+        if ( null === $mismatch_reason ) {
+            return true;
+        }
+
+        $this->log(
+            sprintf(
+                'Ignoring stale webhook for order #%d: %s',
+                $order->get_id(),
+                $mismatch_reason
+            )
+        );
+
+        return false;
+    }
+
+    /**
+     * Resolve whether an event/status pair should transition the order.
+     *
+     * @return 'success'|'failure'|'ignore'
+     */
+    public static function resolve_event_action( string $event_type, string $verified_status ): string {
+        $event_type      = sanitize_text_field( $event_type );
+        $verified_status = sanitize_text_field( $verified_status );
+
+        if ( self::is_success_event( $event_type ) ) {
+            return self::is_success_status( $verified_status ) ? 'success' : 'ignore';
+        }
+
+        if ( self::is_failure_event( $event_type ) ) {
+            return self::is_failure_status( $verified_status ) ? 'failure' : 'ignore';
+        }
+
+        return 'ignore';
+    }
+
+    /**
+     * Detect whether the incoming attempt mismatches the current stored attempt.
+     *
+     * @param array<string, mixed> $payload Incoming webhook or verified transaction payload.
+     * @return string|null Mismatch reason when stale, or null when the attempt matches.
+     */
+    public static function detect_attempt_mismatch(
+        string $stored_session_id,
+        string $stored_transaction_hid,
+        array $payload
+    ): ?string {
+        $stored_session_id      = sanitize_text_field( $stored_session_id );
+        $stored_transaction_hid = sanitize_text_field( $stored_transaction_hid );
+        $incoming_session_id    = sanitize_text_field( (string) ( $payload['sessionId'] ?? '' ) );
+        $incoming_transaction   = sanitize_text_field( (string) ( $payload['transactionHid'] ?? '' ) );
+
+        if ( '' !== $stored_session_id ) {
+            if ( '' === $incoming_session_id ) {
+                return sprintf( 'missing sessionId, expected=%s', $stored_session_id );
+            }
+
+            if ( $stored_session_id !== $incoming_session_id ) {
+                return sprintf( 'sessionId=%s, expected=%s', $incoming_session_id, $stored_session_id );
+            }
         }
 
         if ( '' !== $stored_transaction_hid && '' !== $incoming_transaction && $stored_transaction_hid !== $incoming_transaction ) {
-            $this->log(
-                sprintf(
-                    'Ignoring stale webhook for order #%d: transactionHid=%s, expected=%s',
-                    $order->get_id(),
-                    $incoming_transaction,
-                    $stored_transaction_hid
-                )
-            );
-            return false;
+            return sprintf( 'transactionHid=%s, expected=%s', $incoming_transaction, $stored_transaction_hid );
         }
 
-        return true;
+        return null;
     }
 
     /**
      * Determine whether the webhook event represents a successful charge completion.
      */
-    private function is_success_event( string $event_type ): bool {
+    private static function is_success_event( string $event_type ): bool {
         return in_array(
             $event_type,
             [
@@ -197,7 +244,7 @@ class OEN_Webhook_Handler {
     /**
      * Determine whether the webhook event should mark the current attempt as failed.
      */
-    private function is_failure_event( string $event_type ): bool {
+    private static function is_failure_event( string $event_type ): bool {
         return in_array(
             $event_type,
             [
@@ -211,6 +258,47 @@ class OEN_Webhook_Handler {
                 'transaction.canceled',
             ],
             true
+        );
+    }
+
+    /**
+     * Determine whether the verified transaction status is a success terminal state.
+     */
+    private static function is_success_status( string $status ): bool {
+        return in_array( $status, [ 'charged' ], true );
+    }
+
+    /**
+     * Determine whether the verified transaction status is a failure terminal state.
+     */
+    private static function is_failure_status( string $status ): bool {
+        return in_array(
+            $status,
+            [
+                'failed',
+                'expired',
+                'cancelled',
+                'canceled',
+            ],
+            true
+        );
+    }
+
+    /**
+     * Log an ignored event whose type does not align with the verified status.
+     *
+     * @param \WC_Order            $order       The WooCommerce order.
+     * @param string               $event_type  Parsed webhook event type.
+     * @param array<string, mixed> $transaction Verified transaction payload.
+     */
+    private function log_event_status_mismatch( \WC_Order $order, string $event_type, array $transaction ): void {
+        $this->log(
+            sprintf(
+                'Ignoring webhook for order #%d: type=%s, verified_status=%s',
+                $order->get_id(),
+                sanitize_text_field( $event_type ),
+                sanitize_text_field( (string) ( $transaction['status'] ?? 'unknown' ) )
+            )
         );
     }
 

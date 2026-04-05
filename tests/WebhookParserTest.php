@@ -5,6 +5,25 @@ declare( strict_types=1 );
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/../includes/class-oen-webhook-parser.php';
 
+if ( ! function_exists( 'add_action' ) ) {
+    function add_action( string $hook, array $callback ): void {
+    }
+}
+
+if ( ! function_exists( 'sanitize_text_field' ) ) {
+    function sanitize_text_field( string $value ): string {
+        return trim( wp_strip_all_tags( $value ) );
+    }
+}
+
+if ( ! function_exists( 'wp_strip_all_tags' ) ) {
+    function wp_strip_all_tags( string $value ): string {
+        return strip_tags( $value );
+    }
+}
+
+require_once __DIR__ . '/../includes/class-oen-webhook-handler.php';
+
 function test_parser_verifies_signature_and_returns_event_type_and_nested_event_data(): void {
     $secret    = 'whsec_test_secret';
     $timestamp = '1712345678';
@@ -87,7 +106,33 @@ function test_parser_rejects_invalid_signature(): void {
     }
 }
 
+function test_handler_treats_missing_session_id_as_stale_when_order_has_stored_session(): void {
+    $reason = OEN_Webhook_Handler::detect_attempt_mismatch(
+        'sess_current',
+        '',
+        [
+            'transactionHid' => 'txn_hid_123',
+        ]
+    );
+
+    test_assert(
+        is_string( $reason ) && str_contains( $reason, 'missing sessionId' ),
+        'Missing sessionId should be treated as stale when the order has a stored session ID.'
+    );
+}
+
+function test_handler_does_not_fail_order_when_failure_event_has_non_failure_verified_status(): void {
+    $resolution = OEN_Webhook_Handler::resolve_event_action( 'payment.failed', 'charged' );
+
+    test_assert(
+        'ignore' === $resolution,
+        'Failure events with non-failure verified statuses should be ignored.'
+    );
+}
+
 test_parser_verifies_signature_and_returns_event_type_and_nested_event_data();
 test_parser_rejects_invalid_signature();
+test_handler_treats_missing_session_id_as_stale_when_order_has_stored_session();
+test_handler_does_not_fail_order_when_failure_event_has_non_failure_verified_status();
 
 echo "Webhook parser smoke harness passed.\n";
