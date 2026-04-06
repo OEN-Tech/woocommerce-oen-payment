@@ -8,6 +8,11 @@ $fixtures = [
         'session_id'   => 'sess_runtime_signed_ambiguous',
         'total'        => 1234,
     ],
+    'signed-success' => [
+        'oen_order_id' => 'wc-runtime-signed-success',
+        'session_id'   => 'sess_runtime_signed_success',
+        'total'        => 1234,
+    ],
     'signed-missing-amount' => [
         'oen_order_id' => 'wc-runtime-signed-missing-amount',
         'session_id'   => 'sess_runtime_signed_missing_amount',

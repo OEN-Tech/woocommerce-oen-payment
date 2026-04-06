@@ -25,6 +25,21 @@ if ( 1 === preg_match( '#^/hosted-checkout/v1/sessions/([^/]+)$#', $path, $match
                 'amount'  => 1234,
             ],
         ],
+        'sess_runtime_signed_success' => [
+            'code' => 'S0000',
+            'data' => [
+                'id'      => $session_id,
+                'orderId' => 'wc-runtime-signed-success',
+                'status'  => 'pending',
+                'amount'  => 1234,
+                'transaction' => [
+                    'status'         => 'charged',
+                    'transactionHid' => 'txn_runtime_success_001',
+                    'transactionId'  => 'txn_runtime_success_internal',
+                    'amount'         => 1234,
+                ],
+            ],
+        ],
         'sess_runtime_signed_missing_amount' => [
             'code' => 'S0000',
             'data' => [

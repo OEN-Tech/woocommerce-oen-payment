@@ -192,6 +192,54 @@ run_signed_ambiguous_case() {
   rm -f "$response_file" "$order_file"
 }
 
+run_signed_success_case() {
+  local prep_json
+  local response_file
+  local order_file
+  local status_code
+  local payload
+  local signature
+
+  prep_json="$(prepare_order 'signed-success')"
+  payload="$(php -r '
+    $data = json_decode($argv[1], true);
+    echo json_encode([
+      "type" => "checkout_session.completed",
+      "data" => [
+        "id" => $data["session_id"],
+        "orderId" => $data["oen_order_id"],
+        "status" => "completed",
+      ],
+    ]);
+  ' "$prep_json")"
+  signature="$(build_signature "$payload" "$WEBHOOK_SECRET")"
+  response_file="$(mktemp)"
+  order_file="$(mktemp)"
+
+  status_code="$(post_webhook "$payload" "$signature" "$response_file")"
+  inspect_order 'signed-success' >"$order_file"
+
+  assert_equals "200" "$status_code" "signed success webhook should return 200"
+  assert_equals "ok" "$(json_field "$response_file" "status")" "signed success webhook should return ok payload"
+  assert_equals "true" "$(json_field "$order_file" "is_paid")" "signed success webhook should mark order paid"
+  local order_status
+  order_status="$(json_field "$order_file" "status")"
+  if [[ "$order_status" != "processing" && "$order_status" != "completed" ]]; then
+    echo "Assertion failed: signed success webhook should transition order status" >&2
+    echo "  expected: processing or completed" >&2
+    echo "  actual:   $order_status" >&2
+    exit 1
+  fi
+  assert_equals "txn_runtime_success_001" "$(json_field "$order_file" "oen_transaction_hid")" "signed success webhook should persist transaction HID"
+  assert_equals "txn_runtime_success_internal" "$(json_field "$order_file" "oen_transaction_id")" "signed success webhook should persist transaction ID"
+  if [[ -z "$(json_field "$order_file" "oen_paid_at")" ]]; then
+    echo "Assertion failed: signed success webhook should set paid_at" >&2
+    exit 1
+  fi
+
+  rm -f "$response_file" "$order_file"
+}
+
 run_signed_missing_amount_case() {
   local prep_json
   local response_file
@@ -260,6 +308,7 @@ run_invalid_signature_case() {
 
 bootstrap_wordpress
 run_signed_ambiguous_case
+run_signed_success_case
 run_signed_missing_amount_case
 run_invalid_signature_case
 
