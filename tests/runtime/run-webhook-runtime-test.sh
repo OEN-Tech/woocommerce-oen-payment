@@ -215,6 +215,7 @@ run_signed_success_case() {
   signature="$(build_signature "$payload" "$WEBHOOK_SECRET")"
   response_file="$(mktemp)"
   order_file="$(mktemp)"
+  replay_file="$(mktemp)"
 
   status_code="$(post_webhook "$payload" "$signature" "$response_file")"
   inspect_order 'signed-success' >"$order_file"
@@ -236,6 +237,44 @@ run_signed_success_case() {
     echo "Assertion failed: signed success webhook should set paid_at" >&2
     exit 1
   fi
+
+  status_code="$(post_webhook "$payload" "$signature" "$replay_file")"
+  assert_equals "200" "$status_code" "duplicate signed success webhook should still return 200"
+  assert_equals "Already processed" "$(json_field "$replay_file" "message")" "duplicate signed success webhook should report already processed"
+
+  rm -f "$response_file" "$order_file" "$replay_file"
+}
+
+run_signed_stale_case() {
+  local prep_json
+  local response_file
+  local order_file
+  local status_code
+  local payload
+  local signature
+
+  prep_json="$(prepare_order 'signed-stale')"
+  payload="$(php -r '
+    $data = json_decode($argv[1], true);
+    echo json_encode([
+      "type" => "checkout_session.completed",
+      "data" => [
+        "id" => "sess_runtime_stale",
+        "orderId" => $data["oen_order_id"],
+        "status" => "completed",
+      ],
+    ]);
+  ' "$prep_json")"
+  signature="$(build_signature "$payload" "$WEBHOOK_SECRET")"
+  response_file="$(mktemp)"
+  order_file="$(mktemp)"
+
+  status_code="$(post_webhook "$payload" "$signature" "$response_file")"
+  inspect_order 'signed-stale' >"$order_file"
+
+  assert_equals "200" "$status_code" "signed stale webhook should return 200"
+  assert_equals "Stale event ignored" "$(json_field "$response_file" "message")" "signed stale webhook should be ignored"
+  assert_equals "false" "$(json_field "$order_file" "is_paid")" "signed stale webhook must not mark order paid"
 
   rm -f "$response_file" "$order_file"
 }
@@ -309,6 +348,7 @@ run_invalid_signature_case() {
 bootstrap_wordpress
 run_signed_ambiguous_case
 run_signed_success_case
+run_signed_stale_case
 run_signed_missing_amount_case
 run_invalid_signature_case
 

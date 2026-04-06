@@ -13,6 +13,11 @@ $fixtures = [
         'session_id'   => 'sess_runtime_signed_success',
         'total'        => 1234,
     ],
+    'signed-stale' => [
+        'oen_order_id' => 'wc-runtime-signed-stale',
+        'session_id'   => 'sess_runtime_current',
+        'total'        => 1234,
+    ],
     'signed-missing-amount' => [
         'oen_order_id' => 'wc-runtime-signed-missing-amount',
         'session_id'   => 'sess_runtime_signed_missing_amount',

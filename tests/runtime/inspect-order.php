@@ -5,6 +5,7 @@ $case = $args[0] ?? '';
 $fixtures = [
     'signed-ambiguous' => 'wc-runtime-signed-ambiguous',
     'signed-success' => 'wc-runtime-signed-success',
+    'signed-stale' => 'wc-runtime-signed-stale',
     'signed-missing-amount' => 'wc-runtime-signed-missing-amount',
     'invalid-signature' => 'wc-runtime-signed-ambiguous',
 ];
