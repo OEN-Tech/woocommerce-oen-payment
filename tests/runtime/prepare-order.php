@@ -28,6 +28,11 @@ $fixtures = [
         'session_id'   => 'sess_runtime_signed_ambiguous',
         'total'        => 1234,
     ],
+    'cvs-pending' => [
+        'oen_order_id' => 'wc-runtime-cvs-pending',
+        'session_id'   => 'sess_runtime_cvs_pending',
+        'total'        => 1234,
+    ],
 ];
 
 if ( ! isset( $fixtures[ $case ] ) ) {

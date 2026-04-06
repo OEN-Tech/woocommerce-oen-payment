@@ -8,6 +8,7 @@ $fixtures = [
     'signed-stale' => 'wc-runtime-signed-stale',
     'signed-missing-amount' => 'wc-runtime-signed-missing-amount',
     'invalid-signature' => 'wc-runtime-signed-ambiguous',
+    'cvs-pending' => 'wc-runtime-cvs-pending',
 ];
 
 if ( ! isset( $fixtures[ $case ] ) ) {

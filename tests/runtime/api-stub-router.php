@@ -50,6 +50,26 @@ if ( 1 === preg_match( '#^/hosted-checkout/v1/sessions/([^/]+)$#', $path, $match
                 ],
             ],
         ],
+        'sess_runtime_cvs_pending' => [
+            'code' => 'S0000',
+            'data' => [
+                'id'      => $session_id,
+                'orderId' => 'wc-runtime-cvs-pending',
+                'status'  => 'completed',
+                'amount'  => 1234,
+                'transaction' => [
+                    'status'         => 'pending',
+                    'transactionHid' => 'txn_runtime_cvs_pending_001',
+                    'transactionId'  => 'txn_runtime_cvs_pending_internal',
+                    'amount'         => 1234,
+                    'paymentInfo'    => [
+                        'cvsName'    => 'FamilyMart',
+                        'code'       => 'CVS1234567890',
+                        'expiredAt'  => '2026-04-13T23:59:59+08:00',
+                    ],
+                ],
+            ],
+        ],
         default => [
             'code'    => 'E404',
             'message' => 'Session not found',
