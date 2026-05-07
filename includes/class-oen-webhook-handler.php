@@ -2,12 +2,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
+require_once __DIR__ . '/class-oen-webhook-parser.php';
+
 /**
  * Handles incoming OEN Payment webhook callbacks.
  *
- * Registered at /?wc-api=oen_payment. OEN sends POST with JSON payload
- * when a transaction status changes (e.g., ATM/CVS payment completed).
- * Also handles credit card webhook confirmations.
+ * Registered at /?wc-api=oen_payment. OEN sends POST with a hosted checkout
+ * event envelope whose business payload lives under the nested data field.
  */
 class OEN_Webhook_Handler {
 
@@ -21,31 +22,43 @@ class OEN_Webhook_Handler {
     public function handle(): void {
         $raw_body = file_get_contents( 'php://input' );
 
-        // Step 1: HMAC signature verification (if webhook secret is configured).
-        if ( ! $this->verify_signature( $raw_body ) ) {
+        try {
+            $payload = $this->parse_webhook_payload( $raw_body );
+        } catch ( \Throwable $exception ) {
+            $status_code = $this->get_parser_status_code( $exception );
+            $this->log( $exception->getMessage(), $raw_body );
+            wp_send_json( [ 'status' => 'error', 'message' => $exception->getMessage() ], $status_code );
             return;
         }
 
-        $payload = json_decode( $raw_body, true );
+        $event_type = sanitize_text_field( $payload['type'] ?? '' );
+        $event_data = $payload['data'] ?? null;
 
-        if ( ! is_array( $payload ) || empty( $payload['orderId'] ) ) {
-            $this->log( 'Invalid webhook payload: missing orderId', $raw_body );
+        if ( '' === $event_type || ! is_array( $event_data ) || empty( $event_data['orderId'] ) ) {
+            $this->log( 'Invalid webhook payload: missing orderId in event data', $raw_body );
             wp_send_json( [ 'status' => 'error', 'message' => 'Invalid payload' ], 400 );
             return;
         }
 
-        // Sanitize all external string fields to prevent HTML injection in
-        // order notes, meta values, and log entries.
-        $payload['orderId']        = sanitize_text_field( $payload['orderId'] );
-        $payload['transactionHid'] = sanitize_text_field( $payload['transactionHid'] ?? '' );
-        $payload['status']         = sanitize_text_field( $payload['status'] ?? '' );
-        $payload['message']        = sanitize_text_field( $payload['message'] ?? '' );
+        // Sanitize external string fields to prevent HTML injection in order notes,
+        // meta values, and log entries.
+        $payload                    = [];
+        $payload['type']            = $event_type;
+        $payload['sessionId']       = sanitize_text_field( (string) ( $event_data['id'] ?? $event_data['sessionId'] ?? '' ) );
+        $payload['orderId']         = sanitize_text_field( $event_data['orderId'] );
+        $payload['transactionHid']  = sanitize_text_field( $event_data['transactionHid'] ?? '' );
+        $payload['transactionId']   = sanitize_text_field( $event_data['transactionId'] ?? '' );
+        $payload['status']          = sanitize_text_field( $event_data['status'] ?? '' );
+        $payload['message']         = sanitize_text_field( $event_data['message'] ?? '' );
+        $payload['paymentMethod']   = sanitize_text_field( $event_data['paymentMethod'] ?? '' );
+        $payload['paymentProvider'] = sanitize_text_field( $event_data['paymentProvider'] ?? '' );
 
-        // Server-side verification requires transactionHid.
         $transaction_hid = $payload['transactionHid'];
-        if ( empty( $transaction_hid ) ) {
-            $this->log( 'Missing transactionHid in webhook payload', $raw_body );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Missing transaction ID' ], 400 );
+        $session_id      = $payload['sessionId'];
+
+        if ( empty( $transaction_hid ) && empty( $session_id ) ) {
+            $this->log( 'Missing transactionHid and sessionId in webhook payload', $raw_body );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Missing payment reference' ], 400 );
             return;
         }
 
@@ -81,53 +94,33 @@ class OEN_Webhook_Handler {
             } elseif ( $order->is_paid() ) {
                 $this->log( 'Order #' . $order_id . ' already paid, skipping webhook.' );
                 $response = [ 'status' => 'ok', 'message' => 'Already processed' ];
+            } elseif ( ! $this->is_current_attempt( $order, $payload ) ) {
+                $response = [ 'status' => 'ok', 'message' => 'Stale event ignored' ];
             } else {
-                // Step 2: Server-side verification — query OEN API for authoritative transaction state.
-                $transaction = $this->verify_transaction( $transaction_hid, $order );
-                if ( null === $transaction ) {
-                    // verify_transaction already logged the error.
+                // Step 2: Server-side verification — query OEN API for authoritative state.
+                $verified_payment = ! empty( $session_id )
+                    ? $this->verify_session( $session_id, $order )
+                    : $this->verify_transaction( $transaction_hid, $order );
+
+                if ( null === $verified_payment ) {
+                    // Verification helper already logged the error.
                     $response      = [ 'status' => 'error', 'message' => 'Verification failed' ];
                     $response_code = 502;
+                } elseif ( ! $this->is_current_attempt( $order, $verified_payment ) ) {
+                    $response = [ 'status' => 'ok', 'message' => 'Stale event ignored' ];
                 } else {
-                    $status = $transaction['status'] ?? '';
+                    $resolution = self::resolve_event_action(
+                        $payload['type'],
+                        self::get_verified_payment_status( $verified_payment )
+                    );
 
-                    switch ( $status ) {
-                        case 'charged':
-                            $this->handle_success( $order, $transaction );
-                            break;
-
-                        case 'pending':
-                        case 'created':
-                            // 中間狀態 — 不改變訂單狀態，等待後續 webhook。
-                            $this->log( 'Order #' . $order->get_id() . ' transaction status: ' . $status . ', no action taken.' );
-                            break;
-
-                        case 'expired':
-                            if ( $order->has_status( [ 'processing', 'completed', 'refunded' ] ) ) {
-                                $this->log( 'Order #' . $order->get_id() . ' ignoring expired — already ' . $order->get_status() . '.' );
-                                break;
-                            }
-                            $order->update_status(
-                                'cancelled',
-                                sprintf(
-                                    __( 'OEN transaction expired (status: %s).', 'woocommerce-oen-payment' ),
-                                    $status
-                                )
-                            );
-                            $this->log( 'Order #' . $order->get_id() . ' cancelled due to expired transaction.' );
-                            break;
-
-                        case 'refunded':
-                            $order->update_status(
-                                'refunded',
-                                __( 'OEN transaction refunded.', 'woocommerce-oen-payment' )
-                            );
-                            $this->log( 'Order #' . $order->get_id() . ' marked as refunded.' );
-                            break;
-
-                        default:
-                            $this->handle_failure( $order, $transaction );
-                            break;
+                    if ( 'success' === $resolution ) {
+                        $this->handle_success( $order, $verified_payment );
+                    } elseif ( 'failure' === $resolution ) {
+                        $this->handle_failure( $order, $verified_payment );
+                    } else {
+                        $this->log_event_status_mismatch( $order, $payload['type'], $verified_payment );
+                        $response = [ 'status' => 'ok', 'message' => 'Event ignored' ];
                     }
                 }
             }
@@ -139,31 +132,246 @@ class OEN_Webhook_Handler {
     }
 
     /**
-     * Verify HMAC signature if webhook secret is configured.
-     *
-     * When no secret is set, signature check is skipped (backward-compatible).
-     * Returns true if verification passes or is not configured.
+     * Parse the hosted checkout webhook envelope and return its type plus nested data.
      *
      * @param string $raw_body Raw request body.
-     * @return bool
+     * @return array<string, mixed>
      */
-    private function verify_signature( string $raw_body ): bool {
-        $webhook_secret = get_option( 'oen_webhook_secret', '' );
+    private function parse_webhook_payload( string $raw_body ): array {
+        $parser = new OEN_Webhook_Parser( get_option( 'oen_webhook_secret', '' ) );
 
-        if ( empty( $webhook_secret ) ) {
+        return $parser->parse( $raw_body, $this->get_signature_header() );
+    }
+
+    /**
+     * Ignore events that do not match the order's current hosted checkout attempt.
+     *
+     * @param \WC_Order              $order   The WooCommerce order.
+     * @param array<string, mixed>   $payload Incoming webhook or verified transaction payload.
+     */
+    private function is_current_attempt( \WC_Order $order, array $payload ): bool {
+        $stored_session_id      = sanitize_text_field( (string) $order->get_meta( '_oen_session_id' ) );
+        $stored_transaction_hid = sanitize_text_field( (string) $order->get_meta( '_oen_transaction_hid' ) );
+        $incoming_session_id    = sanitize_text_field( (string) ( $payload['sessionId'] ?? '' ) );
+        $incoming_transaction   = sanitize_text_field( (string) ( $payload['transactionHid'] ?? '' ) );
+        $mismatch_reason        = self::detect_attempt_mismatch(
+            $stored_session_id,
+            $stored_transaction_hid,
+            [
+                'sessionId'      => $incoming_session_id,
+                'transactionHid' => $incoming_transaction,
+            ]
+        );
+
+        if ( null === $mismatch_reason ) {
             return true;
         }
 
-        $signature = $_SERVER['HTTP_X_OEN_SIGNATURE'] ?? '';
-        $expected  = hash_hmac( 'sha256', $raw_body, $webhook_secret );
+        $this->log(
+            sprintf(
+                'Ignoring stale webhook for order #%d: %s',
+                $order->get_id(),
+                $mismatch_reason
+            )
+        );
 
-        if ( ! hash_equals( $expected, $signature ) ) {
-            $this->log( 'Invalid webhook signature' );
-            wp_send_json( [ 'status' => 'error', 'message' => 'Invalid signature' ], 403 );
-            return false;
+        return false;
+    }
+
+    /**
+     * Resolve whether an event/status pair should transition the order.
+     *
+     * @return 'success'|'failure'|'ignore'
+     */
+    public static function resolve_event_action( string $event_type, string $verified_status ): string {
+        $event_type      = sanitize_text_field( $event_type );
+        $verified_status = sanitize_text_field( $verified_status );
+
+        if ( self::is_success_event( $event_type ) ) {
+            return self::is_success_status( $verified_status ) ? 'success' : 'ignore';
         }
 
-        return true;
+        if ( self::is_failure_event( $event_type ) ) {
+            return self::is_failure_status( $verified_status ) ? 'failure' : 'ignore';
+        }
+
+        return 'ignore';
+    }
+
+    /**
+     * Normalize the authoritative payment status from a verified Hosted Checkout session payload.
+     *
+     * Prefer the nested transaction status when present to avoid contradictory
+     * interpretations between session lifecycle state and payment outcome state.
+     *
+     * @param array<string, mixed> $session Verified Hosted Checkout session payload.
+     */
+    public static function normalize_verified_session_status( array $session ): string {
+        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
+        $status      = sanitize_text_field( (string) ( $transaction['status'] ?? '' ) );
+
+        if ( '' !== $status ) {
+            return $status;
+        }
+
+        return '';
+    }
+
+    /**
+     * Detect whether the incoming attempt mismatches the current stored attempt.
+     *
+     * @param array<string, mixed> $payload Incoming webhook or verified transaction payload.
+     * @return string|null Mismatch reason when stale, or null when the attempt matches.
+     */
+    public static function detect_attempt_mismatch(
+        string $stored_session_id,
+        string $stored_transaction_hid,
+        array $payload
+    ): ?string {
+        $stored_session_id      = sanitize_text_field( $stored_session_id );
+        $stored_transaction_hid = sanitize_text_field( $stored_transaction_hid );
+        $incoming_session_id    = sanitize_text_field( (string) ( $payload['sessionId'] ?? '' ) );
+        $incoming_transaction   = sanitize_text_field( (string) ( $payload['transactionHid'] ?? '' ) );
+
+        if ( '' !== $stored_session_id ) {
+            if ( '' === $incoming_session_id ) {
+                return sprintf( 'missing sessionId, expected=%s', $stored_session_id );
+            }
+
+            if ( $stored_session_id !== $incoming_session_id ) {
+                return sprintf( 'sessionId=%s, expected=%s', $incoming_session_id, $stored_session_id );
+            }
+
+            return null;
+        }
+
+        if ( '' !== $incoming_session_id && ( '' === $stored_transaction_hid || '' === $incoming_transaction ) ) {
+            return sprintf(
+                'unverifiable sessionId=%s without stored session binding or matching transactionHid',
+                $incoming_session_id
+            );
+        }
+
+        if ( '' !== $stored_transaction_hid && '' !== $incoming_transaction && $stored_transaction_hid !== $incoming_transaction ) {
+            return sprintf( 'transactionHid=%s, expected=%s', $incoming_transaction, $stored_transaction_hid );
+        }
+
+        return null;
+    }
+
+    /**
+     * Determine whether the webhook event represents a successful charge completion.
+     */
+    private static function is_success_event( string $event_type ): bool {
+        return in_array(
+            $event_type,
+            [
+                'checkout_session.completed',
+            ],
+            true
+        );
+    }
+
+    /**
+     * Determine whether the webhook event should mark the current attempt as failed.
+     */
+    private static function is_failure_event( string $event_type ): bool {
+        return in_array(
+            $event_type,
+            [
+                'checkout_session.failed',
+                'checkout_session.expired',
+                'checkout_session.cancelled',
+            ],
+            true
+        );
+    }
+
+    /**
+     * Determine whether the verified transaction status is a success terminal state.
+     */
+    private static function is_success_status( string $status ): bool {
+        return in_array( $status, [ 'completed', 'charged' ], true );
+    }
+
+    /**
+     * Determine whether the verified transaction status is a failure terminal state.
+     */
+    private static function is_failure_status( string $status ): bool {
+        return in_array(
+            $status,
+            [
+                'failed',
+                'expired',
+                'cancelled',
+            ],
+            true
+        );
+    }
+
+    /**
+     * Normalize the status value from verified payment data before order transitions.
+     *
+     * @param array<string, mixed> $verified_payment Verified payment data.
+     */
+    private static function get_verified_payment_status( array $verified_payment ): string {
+        $status = sanitize_text_field( (string) ( $verified_payment['status'] ?? '' ) );
+
+        if ( '' !== $status ) {
+            return $status;
+        }
+
+        return self::normalize_verified_session_status( $verified_payment );
+    }
+
+    /**
+     * Log an ignored event whose type does not align with the verified status.
+     *
+     * @param \WC_Order            $order       The WooCommerce order.
+     * @param string               $event_type  Parsed webhook event type.
+     * @param array<string, mixed> $transaction Verified transaction payload.
+     */
+    private function log_event_status_mismatch( \WC_Order $order, string $event_type, array $transaction ): void {
+        $this->log(
+            sprintf(
+                'Ignoring webhook for order #%d: type=%s, verified_status=%s',
+                $order->get_id(),
+                sanitize_text_field( $event_type ),
+                self::get_verified_payment_status( $transaction ) ?: 'unknown'
+            )
+        );
+    }
+
+    /**
+     * Resolve the OenPay-Signature header from common PHP server variables.
+     */
+    private function get_signature_header(): string {
+        if ( isset( $_SERVER['HTTP_OENPAY_SIGNATURE'] ) ) {
+            return (string) $_SERVER['HTTP_OENPAY_SIGNATURE'];
+        }
+
+        if ( function_exists( 'getallheaders' ) ) {
+            foreach ( getallheaders() as $name => $value ) {
+                if ( 0 === strcasecmp( $name, 'OenPay-Signature' ) ) {
+                    return is_string( $value ) ? $value : '';
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Map parser exceptions to HTTP status codes.
+     */
+    private function get_parser_status_code( \Throwable $exception ): int {
+        $code = (int) $exception->getCode();
+
+        if ( $code >= 400 && $code < 600 ) {
+            return $code;
+        }
+
+        return 400;
     }
 
     /**
@@ -187,40 +395,122 @@ class OEN_Webhook_Handler {
             return null;
         }
 
-        // Verify the transaction belongs to this order (prevent cross-order replay).
-        // Compare against stored meta, not webhook payload (which is attacker-controlled).
-        $api_order_id = $transaction['orderId'] ?? '';
-        $expected_id  = $order->get_meta( '_oen_order_id' );
+        if ( ! $this->validate_verified_payment( $transaction, $order, 'transaction' ) ) {
+            return null;
+        }
 
-        if ( $api_order_id !== $expected_id ) {
+        return $transaction;
+    }
+
+    /**
+     * Verify a hosted checkout session via the OEN API and normalize it into
+     * the same authoritative payment shape used by transaction verification.
+     *
+     * @param string    $session_id The OEN hosted checkout session ID.
+     * @param \WC_Order $order      The WooCommerce order.
+     * @return array|null Verified payment data, or null on failure.
+     */
+    private function verify_session( string $session_id, \WC_Order $order ): ?array {
+        try {
+            $api     = OEN_API_Client::from_settings();
+            $session = $api->get_session( $session_id );
+        } catch ( \Throwable $e ) {
+            $this->log(
+                sprintf( 'Session verification failed for order #%d: %s', $order->get_id(), $e->getMessage() )
+            );
+            return null;
+        }
+
+        $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
+        if ( '' !== $response_session_id && $response_session_id !== $session_id ) {
             $this->log(
                 sprintf(
-                    'Order ID mismatch for order #%d: api=%s, expected=%s',
+                    'Session ID mismatch for order #%d: api=%s, expected=%s',
                     $order->get_id(),
-                    sanitize_text_field( $api_order_id ),
-                    $expected_id
+                    $response_session_id,
+                    $session_id
                 )
             );
             return null;
         }
 
-        // Verify amount matches order total (OEN API returns integer TWD amount).
-        $api_amount  = intval( $transaction['amount'] ?? 0 );
+        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
+        $payment_info = [];
+        if ( is_array( $transaction['paymentInfo'] ?? null ) ) {
+            $payment_info = $transaction['paymentInfo'];
+        } elseif ( is_array( $session['paymentInfo'] ?? null ) ) {
+            $payment_info = $session['paymentInfo'];
+        }
+
+        $verified_payment = [
+            'sessionId'      => '' !== $response_session_id ? $response_session_id : $session_id,
+            'transactionHid' => sanitize_text_field( (string) ( $transaction['transactionHid'] ?? $session['transactionHid'] ?? '' ) ),
+            'transactionId'  => sanitize_text_field( (string) ( $transaction['transactionId'] ?? $session['transactionId'] ?? $transaction['id'] ?? '' ) ),
+            'orderId'        => sanitize_text_field( (string) ( $session['orderId'] ?? $transaction['orderId'] ?? '' ) ),
+            'status'         => self::normalize_verified_session_status( $session ),
+            'amount'         => $transaction['amount'] ?? $session['amount'] ?? null,
+            'paymentInfo'    => $payment_info,
+        ];
+
+        if ( ! $this->validate_verified_payment( $verified_payment, $order, 'session' ) ) {
+            return null;
+        }
+
+        return $verified_payment;
+    }
+
+    /**
+     * Validate that verified payment data is still bound to the current order.
+     *
+     * @param array<string, mixed> $verified_payment Verified payment data from OEN.
+     * @param \WC_Order            $order            The WooCommerce order.
+     * @param string               $source           Verification source label for logs.
+     */
+    private function validate_verified_payment( array $verified_payment, \WC_Order $order, string $source ): bool {
+        $api_order_id = sanitize_text_field( (string) ( $verified_payment['orderId'] ?? '' ) );
+        $expected_id  = sanitize_text_field( (string) $order->get_meta( '_oen_order_id' ) );
+
+        if ( '' === $api_order_id || $api_order_id !== $expected_id ) {
+            $this->log(
+                sprintf(
+                    'Order ID mismatch during %1$s verification for order #%2$d: api=%3$s, expected=%4$s',
+                    $source,
+                    $order->get_id(),
+                    $api_order_id ?: 'missing',
+                    $expected_id
+                )
+            );
+            return false;
+        }
+
+        if ( ! array_key_exists( 'amount', $verified_payment ) || '' === sanitize_text_field( (string) $verified_payment['amount'] ) ) {
+            $this->log(
+                sprintf(
+                    'Missing amount during %1$s verification for order #%2$d',
+                    $source,
+                    $order->get_id()
+                )
+            );
+            return false;
+        }
+
+        $api_amount  = intval( $verified_payment['amount'] );
         $order_total = intval( $order->get_total() );
 
         if ( $api_amount !== $order_total ) {
             $this->log(
                 sprintf(
-                    'Amount mismatch for order #%d: api=%d, order=%d',
+                    'Amount mismatch during %1$s verification for order #%2$d: api=%3$d, order=%4$d',
+                    $source,
                     $order->get_id(),
                     $api_amount,
                     $order_total
                 )
             );
-            return null;
+            return false;
         }
 
-        return $transaction;
+        return true;
     }
 
     /**
@@ -231,9 +521,28 @@ class OEN_Webhook_Handler {
      */
     private function handle_success( \WC_Order $order, array $transaction ): void {
         $transaction_hid = $transaction['transactionHid'] ?? '';
+        $transaction_id  = $transaction['transactionId'] ?? '';
+        $status          = self::get_verified_payment_status( $transaction );
+
+        if ( ! in_array( $status, [ 'completed', 'charged' ], true ) ) {
+            $this->log(
+                sprintf(
+                    'Skipping success transition for order #%d because verified status is %s',
+                    $order->get_id(),
+                    $status ?: 'unknown'
+                )
+            );
+            return;
+        }
 
         // Store payment metadata.
         $order->update_meta_data( '_oen_paid_at', current_time( 'c' ) );
+        if ( '' !== sanitize_text_field( (string) $transaction_hid ) ) {
+            $order->update_meta_data( '_oen_transaction_hid', sanitize_text_field( (string) $transaction_hid ) );
+        }
+        if ( '' !== sanitize_text_field( (string) $transaction_id ) ) {
+            $order->update_meta_data( '_oen_transaction_id', sanitize_text_field( (string) $transaction_id ) );
+        }
 
         // Store CVS-specific metadata if present.
         $payment_info = $transaction['paymentInfo'] ?? [];
@@ -270,7 +579,11 @@ class OEN_Webhook_Handler {
      * @param array     $transaction Verified transaction data from OEN API.
      */
     private function handle_failure( \WC_Order $order, array $transaction ): void {
-        $status = sanitize_text_field( $transaction['status'] ?? 'unknown' );
+        $status = self::get_verified_payment_status( $transaction );
+
+        if ( '' === $status ) {
+            $status = 'unknown';
+        }
 
         $order->update_status(
             'failed',
@@ -299,7 +612,7 @@ class OEN_Webhook_Handler {
         // Non-blocking: timeout 0 means return immediately if lock is held.
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $result = $wpdb->get_var(
-            $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $wpdb->prefix . 'oen_webhook_' . $order_id )
+            $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $this->get_lock_name( $order_id ) )
         );
 
         // GET_LOCK returns: 1 = acquired, 0 = held by another, NULL = error.
@@ -320,8 +633,19 @@ class OEN_Webhook_Handler {
 
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery
         $wpdb->query(
-            $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $wpdb->prefix . 'oen_webhook_' . $order_id )
+            $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->get_lock_name( $order_id ) )
         );
+    }
+
+    /**
+     * Build the shared advisory lock name for a specific order.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    private function get_lock_name( int $order_id ): string {
+        global $wpdb;
+
+        return $wpdb->prefix . 'oen_order_' . $order_id;
     }
 
     /**

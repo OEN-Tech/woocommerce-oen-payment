@@ -1,0 +1,5 @@
+# 此 plugin 宣告 Requires PHP: 8.1，本機開發釘 8.1 與最低相容版本對齊。
+# 進到此目錄後，`php` 自動指到 brew 的 php@8.1。
+
+[env]
+_.path = ["/opt/homebrew/opt/php@8.1/bin"]

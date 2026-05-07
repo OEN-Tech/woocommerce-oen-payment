@@ -70,7 +70,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
     /**
      * Check if the gateway is available for use.
      *
-     * Requires the master OEN toggle to be enabled and MerchantID + API Token set.
+     * Requires the master OEN toggle to be enabled and MerchantID + Secret Key set.
      */
     public function is_available(): bool {
         if ( 'yes' !== get_option( 'oen_enabled', 'no' ) ) {
@@ -85,7 +85,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
     }
 
     /**
-     * Process the payment: create OEN checkout and redirect.
+     * Process the payment: create OEN hosted checkout session and redirect.
      *
      * @param int $order_id WooCommerce order ID.
      * @return array{result: string, redirect: string}
@@ -101,45 +101,304 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             return [ 'result' => 'failure' ];
         }
 
+        if ( ! $this->acquire_order_lock( $order_id ) ) {
+            wc_add_notice(
+                __( 'Another OEN checkout attempt is already being prepared for this order. Please wait a moment and try again.', 'woocommerce-oen-payment' ),
+                'error'
+            );
+            return [ 'result' => 'failure' ];
+        }
+
         try {
+            $order = wc_get_order( $order_id );
+
+            if ( ! $order ) {
+                wc_add_notice(
+                    __( 'Order not found.', 'woocommerce-oen-payment' ),
+                    'error'
+                );
+                return [ 'result' => 'failure' ];
+            }
+
+            if ( $order->is_paid() ) {
+                return [
+                    'result'   => 'success',
+                    'redirect' => $this->get_return_url( $order ),
+                ];
+            }
+
             $client = OEN_API_Client::from_settings();
+
+            $reusable_checkout_url = $this->get_reusable_checkout_url( $order, $client );
+
+            if ( '' !== $reusable_checkout_url ) {
+                return [
+                    'result'   => 'success',
+                    'redirect' => $reusable_checkout_url,
+                ];
+            }
+
             $params = $this->build_checkout_params( $order );
-            $result = $client->create_checkout( $params );
+            $result = $client->create_session( $params );
+            $session_id = sanitize_text_field( (string) ( $result['id'] ?? '' ) );
+            $checkout_url = sanitize_text_field( (string) ( $result['checkoutUrl'] ?? '' ) );
 
-            // Store OEN transaction references as order meta.
-            $oen_order_id = $params['orderId'];
-            $order->update_meta_data( '_oen_order_id', $oen_order_id );
-            $order->update_meta_data( '_oen_transaction_id', $result['id'] ?? '' );
-            $order->update_meta_data( '_oen_transaction_hid', $result['transactionHid'] ?? '' );
-            $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
-            $order->save();
-
-            // CVS/ATM 需要等待客戶繳費，設為 on-hold 避免被 WooCommerce 自動取消。
-            if ( in_array( $this->payment_method_type, [ 'cvs', 'atm' ], true ) ) {
-                $order->update_status(
-                    'on-hold',
-                    __( 'Awaiting OEN off-site payment.', 'woocommerce-oen-payment' )
+            if ( '' === $session_id ) {
+                throw new \RuntimeException(
+                    __( 'OEN Payment API did not return a session id.', 'woocommerce-oen-payment' )
                 );
             }
 
-            // Build the redirect URL to OEN's hosted checkout page.
-            $checkout_url = $client->get_checkout_url( $result['id'] );
+            if ( '' === $checkout_url ) {
+                throw new \RuntimeException(
+                    __( 'OEN Payment API did not return a checkout URL.', 'woocommerce-oen-payment' )
+                );
+            }
+
+            // Store OEN session and transaction references as order meta.
+            $oen_order_id = $params['orderId'];
+            $order->update_meta_data( '_oen_order_id', $oen_order_id );
+            $order->update_meta_data( '_oen_session_id', $session_id );
+            $order->update_meta_data( '_oen_checkout_url', $checkout_url );
+            if ( ! empty( $result['transactionId'] ) ) {
+                $order->update_meta_data( '_oen_transaction_id', $result['transactionId'] );
+            } else {
+                $order->delete_meta_data( '_oen_transaction_id' );
+            }
+            if ( ! empty( $result['transactionHid'] ) ) {
+                $order->update_meta_data( '_oen_transaction_hid', $result['transactionHid'] );
+            } else {
+                $order->delete_meta_data( '_oen_transaction_hid' );
+            }
+            $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
+            $order->save();
 
             return [
                 'result'   => 'success',
                 'redirect' => $checkout_url,
             ];
         } catch ( \RuntimeException $e ) {
-            wc_get_logger()->error(
-                sprintf( 'OEN checkout failed for order #%d: %s', $order_id, $e->getMessage() ),
-                [ 'source' => 'oen-payment' ]
-            );
-            wc_add_notice(
-                __( 'Payment processing failed. Please try again or contact support.', 'woocommerce-oen-payment' ),
-                'error'
-            );
+            wc_add_notice( $e->getMessage(), 'error' );
             return [ 'result' => 'failure' ];
+        } finally {
+            $this->release_order_lock( $order_id );
         }
+    }
+
+    /**
+     * Reuse the current hosted checkout attempt when the order already has an
+     * active session and its checkout URL is still usable.
+     *
+     * @param \WC_Order       $order  WooCommerce order.
+     * @param OEN_API_Client  $client API client.
+     * @return string Reusable checkout URL, or empty string when a fresh attempt is needed.
+     * @throws \RuntimeException When the stored session cannot be verified safely.
+     */
+    protected function get_reusable_checkout_url( \WC_Order $order, OEN_API_Client $client ): string {
+        $session_id = sanitize_text_field( (string) $order->get_meta( '_oen_session_id' ) );
+
+        if ( '' === $session_id ) {
+            return '';
+        }
+
+        try {
+            $session = $client->get_session( $session_id );
+        } catch ( \Throwable $exception ) {
+            throw new \RuntimeException(
+                __( 'We could not verify your existing OEN checkout session. Please try again in a moment.', 'woocommerce-oen-payment' ),
+                0,
+                $exception
+            );
+        }
+
+        $session_state = self::classify_reusable_session_response( $session );
+
+        if ( 'unsafe' === $session_state ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        $this->assert_verified_session_matches_order( $order, $session_id, $session );
+
+        if ( 'refreshable_terminal' === $session_state ) {
+            return '';
+        }
+
+        if ( 'verified_success_terminal' === $session_state ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        $checkout_url = sanitize_text_field( (string) ( $session['checkoutUrl'] ?? '' ) );
+        if ( '' !== $checkout_url ) {
+            if ( $checkout_url !== sanitize_text_field( (string) $order->get_meta( '_oen_checkout_url' ) ) ) {
+                $order->update_meta_data( '_oen_checkout_url', $checkout_url );
+                $order->save();
+            }
+
+            return $checkout_url;
+        }
+
+        $checkout_url = sanitize_text_field( (string) $order->get_meta( '_oen_checkout_url' ) );
+
+        if ( '' === $checkout_url ) {
+            throw new \RuntimeException(
+                __( 'Your existing OEN checkout session is still active, but its checkout URL is unavailable. Please try again in a moment.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        return $checkout_url;
+    }
+
+    /**
+     * Verify that a fetched Hosted Checkout session is still bound to the current order.
+     *
+     * @param \WC_Order             $order      WooCommerce order.
+     * @param string                $session_id Stored Hosted Checkout session id.
+     * @param array<string, mixed>  $session    Hosted Checkout session payload.
+     *
+     * @throws \RuntimeException When the stored session cannot be safely bound to the order.
+     */
+    protected function assert_verified_session_matches_order( \WC_Order $order, string $session_id, array $session ): void {
+        $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
+        if ( '' === $response_session_id || $response_session_id !== $session_id ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        $expected_order_id = sanitize_text_field(
+            (string) ( $this->build_checkout_params( $order )['orderId'] ?? '' )
+        );
+        $session_order_id  = sanitize_text_field( (string) ( $session['orderId'] ?? '' ) );
+
+        if ( '' === $expected_order_id || '' === $session_order_id || $session_order_id !== $expected_order_id ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        if ( ! array_key_exists( 'amount', $session ) || '' === sanitize_text_field( (string) $session['amount'] ) ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+
+        $session_amount = intval( $session['amount'] );
+        if ( $session_amount !== intval( $order->get_total() ) ) {
+            throw $this->get_reusable_session_verification_exception();
+        }
+    }
+
+    /**
+     * Treat non-terminal hosted checkout session states as reusable.
+     *
+     * @param array<string, mixed> $session Hosted checkout session payload.
+     */
+    protected static function is_reusable_session_response( array $session ): bool {
+        return 'reusable' === self::classify_reusable_session_response( $session );
+    }
+
+    /**
+     * Classify whether a fetched Hosted Checkout session is safely reusable.
+     *
+     * @return 'reusable'|'refreshable_terminal'|'verified_success_terminal'|'unsafe'
+     */
+    protected static function classify_reusable_session_response( array $session ): string {
+        $status = self::normalize_session_status( $session );
+
+        if ( '' === $status ) {
+            return 'unsafe';
+        }
+
+        if ( in_array( $status, [ 'failed', 'expired', 'cancelled' ], true ) ) {
+            return 'refreshable_terminal';
+        }
+
+        if ( in_array( $status, [ 'completed', 'charged' ], true ) ) {
+            return 'verified_success_terminal';
+        }
+
+        return 'reusable';
+    }
+
+    /**
+     * Normalize verified Hosted Checkout transaction status.
+     *
+     * Prefer the nested transaction status when present because it reflects the
+     * authoritative payment outcome returned by the session verification API.
+     *
+     * @param array<string, mixed> $session Hosted checkout session payload.
+     */
+    protected static function normalize_session_status( array $session ): string {
+        if ( class_exists( 'OEN_Webhook_Handler' ) && method_exists( 'OEN_Webhook_Handler', 'normalize_verified_session_status' ) ) {
+            return OEN_Webhook_Handler::normalize_verified_session_status( $session );
+        }
+
+        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
+        $status      = sanitize_text_field( (string) ( $transaction['status'] ?? '' ) );
+
+        if ( '' !== $status ) {
+            return $status;
+        }
+
+        return '';
+    }
+
+    /**
+     * Build the fail-closed exception used when a reusable session cannot be safely verified.
+     */
+    protected function get_reusable_session_verification_exception(): \RuntimeException {
+        return new \RuntimeException(
+            __( 'We could not safely verify your existing OEN checkout session. Please try again in a moment.', 'woocommerce-oen-payment' )
+        );
+    }
+
+    /**
+     * Acquire a per-order advisory lock before deciding whether to reuse or create a session.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    protected function acquire_order_lock( int $order_id ): bool {
+        global $wpdb;
+
+        if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'get_var' ) ) {
+            return true;
+        }
+
+        // Wait briefly so duplicate clicks can reuse the first attempt instead of failing open.
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $result = $wpdb->get_var(
+            $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $this->get_order_lock_name( $order_id ) )
+        );
+
+        return '1' === (string) $result;
+    }
+
+    /**
+     * Release the per-order advisory lock.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    protected function release_order_lock( int $order_id ): void {
+        global $wpdb;
+
+        if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'prepare' ) || ! method_exists( $wpdb, 'query' ) ) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+        $wpdb->query(
+            $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $this->get_order_lock_name( $order_id ) )
+        );
+    }
+
+    /**
+     * Build the advisory lock name for an order-scoped Hosted Checkout attempt.
+     *
+     * @param int $order_id WooCommerce order ID.
+     */
+    protected function get_order_lock_name( int $order_id ): string {
+        global $wpdb;
+
+        $prefix = '';
+        if ( isset( $wpdb ) && is_object( $wpdb ) && isset( $wpdb->prefix ) && is_string( $wpdb->prefix ) ) {
+            $prefix = $wpdb->prefix;
+        }
+
+        return $prefix . 'oen_order_' . $order_id;
     }
 
     /**
@@ -158,6 +417,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             'orderId'        => $order_id,
             'successUrl'     => $this->get_return_url( $order ),
             'failureUrl'     => wc_get_checkout_url(),
+            'cancelUrl'      => wc_get_cart_url(),
             'userName'       => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ),
             'userEmail'      => $order->get_billing_email(),
             'productDetails' => $this->build_product_details( $order ),
@@ -208,26 +468,12 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
                 'description'    => $item->get_name(),
                 'quantity'       => $item->get_quantity(),
                 'unit'           => __( 'pc', 'woocommerce-oen-payment' ),
-                'unitPrice'      => (int) round( (float) $order->get_item_total( $item, true ) ),
+                'unitPrice'      => intval( $order->get_item_total( $item, false ) ),
             ];
         }
 
-        // Include fees (e.g. surcharges) as line items.
-        foreach ( $order->get_fees() as $fee ) {
-            $fee_total = (int) round( (float) $fee->get_total() + (float) $fee->get_total_tax() );
-            if ( 0 !== $fee_total ) {
-                $details[] = [
-                    'productionCode' => 'FEE',
-                    'description'    => $fee->get_name(),
-                    'quantity'       => 1,
-                    'unit'           => __( 'set', 'woocommerce-oen-payment' ),
-                    'unitPrice'      => $fee_total,
-                ];
-            }
-        }
-
         // Include shipping as a line item if > 0.
-        $shipping_total = (int) round( (float) $order->get_shipping_total() + (float) $order->get_shipping_tax() );
+        $shipping_total = intval( $order->get_shipping_total() );
         if ( $shipping_total > 0 ) {
             $details[] = [
                 'productionCode' => 'SHIPPING',
@@ -235,21 +481,6 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
                 'quantity'       => 1,
                 'unit'           => __( 'set', 'woocommerce-oen-payment' ),
                 'unitPrice'      => $shipping_total,
-            ];
-        }
-
-        // Adjustment line item to ensure sum(unitPrice * quantity) === order total.
-        $sum         = array_sum( array_map( fn( $d ) => $d['unitPrice'] * $d['quantity'], $details ) );
-        $order_total = (int) round( (float) $order->get_total() );
-        $diff        = $order_total - $sum;
-
-        if ( 0 !== $diff ) {
-            $details[] = [
-                'productionCode' => 'ADJ',
-                'description'    => __( 'Order adjustment', 'woocommerce-oen-payment' ),
-                'quantity'       => 1,
-                'unit'           => __( 'set', 'woocommerce-oen-payment' ),
-                'unitPrice'      => $diff,
             ];
         }
 
