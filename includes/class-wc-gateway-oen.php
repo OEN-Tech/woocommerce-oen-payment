@@ -173,12 +173,29 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
             $order->save();
 
+            // CVS/ATM 需要等待客戶繳費，設為 on-hold 避免被 WooCommerce 自動取消。
+            if ( in_array( $this->payment_method_type, [ 'cvs', 'atm' ], true ) ) {
+                $order->update_status(
+                    'on-hold',
+                    __( 'Awaiting OEN off-site payment.', 'woocommerce-oen-payment' )
+                );
+            }
+
             return [
                 'result'   => 'success',
                 'redirect' => $checkout_url,
             ];
         } catch ( \RuntimeException $e ) {
-            wc_add_notice( $e->getMessage(), 'error' );
+            // Never surface internal API error details to customers — log them and
+            // show a generic notice instead.
+            wc_get_logger()->error(
+                sprintf( 'OEN checkout failed for order #%d: %s', $order_id, $e->getMessage() ),
+                [ 'source' => 'oen-payment' ]
+            );
+            wc_add_notice(
+                __( 'Payment processing failed. Please try again or contact support.', 'woocommerce-oen-payment' ),
+                'error'
+            );
             return [ 'result' => 'failure' ];
         } finally {
             $this->release_order_lock( $order_id );
@@ -471,12 +488,26 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
                 'description'    => $item->get_name(),
                 'quantity'       => $item->get_quantity(),
                 'unit'           => __( 'pc', 'woocommerce-oen-payment' ),
-                'unitPrice'      => intval( $order->get_item_total( $item, false ) ),
+                'unitPrice'      => (int) round( (float) $order->get_item_total( $item, true ) ),
             ];
         }
 
+        // Include fees (e.g. surcharges) as line items.
+        foreach ( $order->get_fees() as $fee ) {
+            $fee_total = (int) round( (float) $fee->get_total() + (float) $fee->get_total_tax() );
+            if ( 0 !== $fee_total ) {
+                $details[] = [
+                    'productionCode' => 'FEE',
+                    'description'    => $fee->get_name(),
+                    'quantity'       => 1,
+                    'unit'           => __( 'set', 'woocommerce-oen-payment' ),
+                    'unitPrice'      => $fee_total,
+                ];
+            }
+        }
+
         // Include shipping as a line item if > 0.
-        $shipping_total = intval( $order->get_shipping_total() );
+        $shipping_total = (int) round( (float) $order->get_shipping_total() + (float) $order->get_shipping_tax() );
         if ( $shipping_total > 0 ) {
             $details[] = [
                 'productionCode' => 'SHIPPING',
@@ -484,6 +515,22 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
                 'quantity'       => 1,
                 'unit'           => __( 'set', 'woocommerce-oen-payment' ),
                 'unitPrice'      => $shipping_total,
+            ];
+        }
+
+        // Adjustment line item to ensure sum(unitPrice * quantity) === order total,
+        // so the backend's productDetails amount check cannot reject the session.
+        $sum         = array_sum( array_map( fn( $d ) => $d['unitPrice'] * $d['quantity'], $details ) );
+        $order_total = (int) round( (float) $order->get_total() );
+        $diff        = $order_total - $sum;
+
+        if ( 0 !== $diff ) {
+            $details[] = [
+                'productionCode' => 'ADJ',
+                'description'    => __( 'Order adjustment', 'woocommerce-oen-payment' ),
+                'quantity'       => 1,
+                'unit'           => __( 'set', 'woocommerce-oen-payment' ),
+                'unitPrice'      => $diff,
             ];
         }
 

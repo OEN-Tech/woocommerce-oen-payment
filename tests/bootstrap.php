@@ -94,6 +94,18 @@ function wp_json_encode( mixed $value, int $flags = 0, int $depth = 512 ): strin
     return json_encode( $value, $flags, $depth );
 }
 
+if ( ! function_exists( 'wc_get_logger' ) ) {
+    function wc_get_logger(): object {
+        return new class() {
+            public function info( string $message, array $context = [] ): void {}
+
+            public function debug( string $message, array $context = [] ): void {}
+
+            public function error( string $message, array $context = [] ): void {}
+        };
+    }
+}
+
 function test_assert( bool $condition, string $message ): void {
     if ( ! $condition ) {
         throw new RuntimeException( $message );
