@@ -315,10 +315,12 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
     }
 
     /**
-     * Normalize verified Hosted Checkout transaction status.
+     * Normalize verified Hosted Checkout session status.
      *
-     * Prefer the nested transaction status when present because it reflects the
-     * authoritative payment outcome returned by the session verification API.
+     * The Hosted Checkout session API returns the lifecycle status at the top
+     * level; a nested `transaction.status` is accepted only as a forward-compat
+     * fallback. Delegates to the webhook handler when available so both the
+     * verification and reuse paths share a single source of truth.
      *
      * @param array<string, mixed> $session Hosted checkout session payload.
      */
@@ -327,14 +329,15 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             return OEN_Webhook_Handler::normalize_verified_session_status( $session );
         }
 
-        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
-        $status      = sanitize_text_field( (string) ( $transaction['status'] ?? '' ) );
+        $status = sanitize_text_field( (string) ( $session['status'] ?? '' ) );
 
         if ( '' !== $status ) {
             return $status;
         }
 
-        return '';
+        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
+
+        return sanitize_text_field( (string) ( $transaction['status'] ?? '' ) );
     }
 
     /**

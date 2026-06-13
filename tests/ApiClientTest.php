@@ -179,11 +179,8 @@ function test_create_session_uses_hosted_checkout_contract(): void {
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_123',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_123',
-            ],
         ] ),
     ];
 
@@ -199,7 +196,7 @@ function test_create_session_uses_hosted_checkout_contract(): void {
     ] );
 
     test_assert(
-        ( $GLOBALS['test_http_post_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/hosted-checkout/v1/sessions',
+        ( $GLOBALS['test_http_post_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/api/hosted-checkout/v1/sessions',
         'POST should hit /hosted-checkout/v1/sessions.'
     );
     test_assert(
@@ -250,10 +247,7 @@ function test_create_session_rejects_missing_session_id(): void {
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_missing',
-            ],
         ] ),
     ];
 
@@ -279,21 +273,15 @@ function test_create_session_uses_unique_idempotency_key_per_attempt(): void {
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_123',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_123',
-            ],
         ] ),
     ];
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_456',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_456',
-            ],
         ] ),
     ];
 
@@ -327,11 +315,8 @@ function test_get_session_uses_hosted_checkout_contract(): void {
     $GLOBALS['test_http_get_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'     => 'sess_123',
                 'status' => 'pending',
-            ],
         ] ),
     ];
 
@@ -343,7 +328,7 @@ function test_get_session_uses_hosted_checkout_contract(): void {
     $result = $client->get_session( 'sess_123' );
 
     test_assert(
-        ( $GLOBALS['test_http_get_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/hosted-checkout/v1/sessions/sess_123',
+        ( $GLOBALS['test_http_get_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/api/hosted-checkout/v1/sessions/sess_123',
         'GET should hit /hosted-checkout/v1/sessions/{id}.'
     );
     test_assert(
@@ -367,11 +352,8 @@ function test_get_session_respects_runtime_api_base_url_override(): void {
         $GLOBALS['test_http_get_queue'][] = [
             'response' => [ 'code' => 200 ],
             'body'     => wp_json_encode( [
-                'code' => 'S0000',
-                'data' => [
                     'id'     => 'sess_123',
                     'status' => 'pending',
-                ],
             ] ),
         ];
 
@@ -404,8 +386,6 @@ function test_process_payment_reuses_existing_reusable_session(): void {
     $GLOBALS['test_http_get_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_existing',
                 'status'      => 'pending',
                 'orderId'     => 'wc-order-1001',
@@ -414,7 +394,6 @@ function test_process_payment_reuses_existing_reusable_session(): void {
                 'transaction' => [
                     'status' => 'pending',
                 ],
-            ],
         ] ),
     ];
 
@@ -453,8 +432,6 @@ function test_process_payment_fails_closed_for_mismatched_reusable_session(): vo
     $GLOBALS['test_http_get_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_existing',
                 'status'      => 'pending',
                 'orderId'     => 'wc-order-9999',
@@ -463,17 +440,13 @@ function test_process_payment_fails_closed_for_mismatched_reusable_session(): vo
                 'transaction' => [
                     'status' => 'pending',
                 ],
-            ],
         ] ),
     ];
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_fresh',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_fresh',
-            ],
         ] ),
     ];
 
@@ -502,7 +475,7 @@ function test_process_payment_fails_closed_for_mismatched_reusable_session(): vo
     );
 }
 
-function test_process_payment_fails_closed_for_ambiguous_completed_reusable_session(): void {
+function test_process_payment_fails_closed_for_completed_terminal_reusable_session(): void {
     test_reset_http_stubs();
 
     $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
@@ -516,14 +489,11 @@ function test_process_payment_fails_closed_for_ambiguous_completed_reusable_sess
     $GLOBALS['test_http_get_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_completed',
                 'status'      => 'completed',
                 'orderId'     => 'wc-order-1004',
                 'amount'      => 2468,
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_completed',
-            ],
         ] ),
     ];
 
@@ -532,15 +502,15 @@ function test_process_payment_fails_closed_for_ambiguous_completed_reusable_sess
 
     test_assert(
         'failure' === ( $result['result'] ?? null ),
-        'process_payment() should fail closed when a reusable session reports only top-level completed without transaction.status.'
+        'process_payment() should fail closed when the stored session is already in a completed terminal state.'
     );
     test_assert(
         0 === count( $GLOBALS['test_http_post_calls'] ),
-        'process_payment() should not create a fresh session when the existing session completion state is ambiguous.'
+        'process_payment() should not create a fresh session when the existing session is already completed.'
     );
 }
 
-function test_process_payment_fails_closed_for_pending_session_without_authoritative_status(): void {
+function test_process_payment_reuses_pending_session_with_top_level_status(): void {
     test_reset_http_stubs();
 
     $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
@@ -551,27 +521,24 @@ function test_process_payment_fails_closed_for_pending_session_without_authorita
     $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_pending' );
     $GLOBALS['test_wc_orders'][1006] = $order;
 
+    // Hosted Checkout reports a non-terminal session's lifecycle status at the
+    // top level. A pending session that still matches the order should be reused
+    // so the customer can finish paying — not rejected.
     $GLOBALS['test_http_get_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_pending',
                 'status'      => 'pending',
                 'orderId'     => 'wc-order-1006',
                 'amount'      => 8642,
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_pending',
-            ],
         ] ),
     ];
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_should_not_exist',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_should_not_exist',
-            ],
         ] ),
     ];
 
@@ -579,12 +546,16 @@ function test_process_payment_fails_closed_for_pending_session_without_authorita
     $result  = $gateway->process_payment( 1006 );
 
     test_assert(
-        'failure' === ( $result['result'] ?? null ),
-        'process_payment() should fail closed when transaction.status is missing, even if top-level session status is pending.'
+        'success' === ( $result['result'] ?? null ),
+        'process_payment() should reuse a matching non-terminal (pending) session instead of failing closed.'
+    );
+    test_assert(
+        'https://oen.tw/checkout/sess_pending' === ( $result['redirect'] ?? null ),
+        'process_payment() should redirect to the reused session checkout URL.'
     );
     test_assert(
         0 === count( $GLOBALS['test_http_post_calls'] ),
-        'process_payment() should not create a new session when authoritative transaction.status is missing.'
+        'process_payment() should not create a new session when an active session can be reused.'
     );
 }
 
@@ -599,30 +570,26 @@ function test_process_payment_fails_closed_for_authoritative_charged_session(): 
     $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_charged' );
     $GLOBALS['test_wc_orders'][1005] = $order;
 
+    // Forward-compat fallback: when a session omits the top-level lifecycle
+    // status but carries a terminal-success nested transaction status, the stored
+    // session is already charged and must not be reused for a retry.
     $GLOBALS['test_http_get_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_charged',
-                'status'      => 'pending',
                 'orderId'     => 'wc-order-1005',
                 'amount'      => 1357,
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_charged',
                 'transaction' => [
                     'status' => 'charged',
                 ],
-            ],
         ] ),
     ];
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_should_not_exist',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_should_not_exist',
-            ],
         ] ),
     ];
 
@@ -665,8 +632,6 @@ function test_process_payment_fails_closed_for_unverified_failure_terminal_sessi
     $GLOBALS['test_http_get_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_failed',
                 'status'      => 'failed',
                 'orderId'     => 'wc-order-9999',
@@ -675,17 +640,13 @@ function test_process_payment_fails_closed_for_unverified_failure_terminal_sessi
                 'transaction' => [
                     'status' => 'failed',
                 ],
-            ],
         ] ),
     ];
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_should_not_exist',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_should_not_exist',
-            ],
         ] ),
     ];
 
@@ -717,8 +678,6 @@ function test_process_payment_refreshes_terminal_session_and_clears_stale_transa
     $GLOBALS['test_http_get_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'      => 'sess_old',
                 'status'  => 'expired',
                 'orderId' => 'wc-order-1002',
@@ -726,17 +685,13 @@ function test_process_payment_refreshes_terminal_session_and_clears_stale_transa
                 'transaction' => [
                     'status' => 'expired',
                 ],
-            ],
         ] ),
     ];
     $GLOBALS['test_http_post_queue'][] = [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [
                 'id'          => 'sess_new',
                 'checkoutUrl' => 'https://oen.tw/checkout/sess_new',
-            ],
         ] ),
     ];
 
@@ -772,8 +727,8 @@ test_get_session_uses_hosted_checkout_contract();
 test_get_session_respects_runtime_api_base_url_override();
 test_process_payment_reuses_existing_reusable_session();
 test_process_payment_fails_closed_for_mismatched_reusable_session();
-test_process_payment_fails_closed_for_ambiguous_completed_reusable_session();
-test_process_payment_fails_closed_for_pending_session_without_authoritative_status();
+test_process_payment_fails_closed_for_completed_terminal_reusable_session();
+test_process_payment_reuses_pending_session_with_top_level_status();
 test_process_payment_fails_closed_for_authoritative_charged_session();
 test_process_payment_fails_closed_for_unverified_failure_terminal_session();
 test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid();

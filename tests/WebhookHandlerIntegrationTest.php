@@ -144,10 +144,13 @@ function integration_build_signature_header( string $secret, array $payload, ?in
     return 't=' . $timestamp . ',v1=' . $signature;
 }
 
-function test_handle_ignores_completed_session_without_authoritative_transaction_status(): void {
+function test_handle_marks_order_paid_for_completed_session(): void {
     $server = integration_start_server();
 
     try {
+        // The verification API (integration router) returns a session whose
+        // top-level status is `completed` with a matching orderId and amount.
+        // That is the authoritative success signal — the order must be paid.
         $result = integration_post_webhook(
             $server['port'],
             'ambiguous_completed',
@@ -163,19 +166,19 @@ function test_handle_ignores_completed_session_without_authoritative_transaction
 
         test_assert(
             200 === $result['status_code'],
-            'Ambiguous completed session should still return HTTP 200 so the event is safely ignored.'
+            'A verified completed session should return HTTP 200.'
         );
         test_assert(
-            ( $result['body']['payload']['message'] ?? null ) === 'Event ignored',
-            'Ambiguous completed session should be ignored rather than marked as paid.'
+            ( $result['body']['payload']['status'] ?? null ) === 'ok',
+            'A verified completed session should be accepted, not ignored.'
         );
         test_assert(
-            false === ( $result['body']['order']['paid'] ?? true ),
-            'Order must remain unpaid when transaction.status is missing.'
+            true === ( $result['body']['order']['paid'] ?? false ),
+            'Order must be marked paid when a verified completed session matches the order.'
         );
         test_assert(
-            '' === ( $result['body']['order']['meta']['_oen_paid_at'] ?? '' ),
-            'Order should not record paid_at for ambiguous completed sessions.'
+            '' !== ( $result['body']['order']['meta']['_oen_paid_at'] ?? '' ),
+            'Order should record paid_at when a completed session is verified.'
         );
     } finally {
         integration_stop_server( $server );
@@ -220,7 +223,7 @@ function test_handle_fails_closed_when_verified_session_amount_is_missing(): voi
     }
 }
 
-function test_handle_accepts_valid_signature_and_still_ignores_ambiguous_completed_session(): void {
+function test_handle_marks_order_paid_for_valid_signed_completed_session(): void {
     $server  = integration_start_server();
     $payload = [
         'type' => 'checkout_session.completed',
@@ -243,15 +246,15 @@ function test_handle_accepts_valid_signature_and_still_ignores_ambiguous_complet
 
         test_assert(
             200 === $result['status_code'],
-            'Valid signed ambiguous sessions should still be safely ignored with HTTP 200.'
+            'A validly signed, verified completed session should return HTTP 200.'
         );
         test_assert(
-            ( $result['body']['payload']['message'] ?? null ) === 'Event ignored',
-            'Valid signed ambiguous sessions should still be ignored rather than marked paid.'
+            ( $result['body']['payload']['status'] ?? null ) === 'ok',
+            'A validly signed, verified completed session should be accepted.'
         );
         test_assert(
-            false === ( $result['body']['order']['paid'] ?? true ),
-            'Order must remain unpaid for valid signed ambiguous sessions.'
+            true === ( $result['body']['order']['paid'] ?? false ),
+            'Order must be marked paid for a validly signed, verified completed session.'
         );
     } finally {
         integration_stop_server( $server );
@@ -296,9 +299,9 @@ function test_handle_rejects_invalid_signature_before_processing_webhook(): void
     }
 }
 
-test_handle_ignores_completed_session_without_authoritative_transaction_status();
+test_handle_marks_order_paid_for_completed_session();
 test_handle_fails_closed_when_verified_session_amount_is_missing();
-test_handle_accepts_valid_signature_and_still_ignores_ambiguous_completed_session();
+test_handle_marks_order_paid_for_valid_signed_completed_session();
 test_handle_rejects_invalid_signature_before_processing_webhook();
 
 echo "Webhook handler integration harness passed.\n";

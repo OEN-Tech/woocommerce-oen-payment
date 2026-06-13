@@ -4,8 +4,11 @@ defined( 'ABSPATH' ) || exit;
 
 class OEN_API_Client {
 
-    private const PRODUCTION_API_URL = 'https://api.oen.tw';
-    private const SANDBOX_API_URL    = 'https://api.testing.oen.tw';
+    // The Hosted Checkout endpoints are served by PublicLambdaProxy, mounted at
+    // the `/api` stage path on the api.oen.tw HTTP API gateway. The `/api` prefix
+    // is required — without it requests 404 at the gateway.
+    private const PRODUCTION_API_URL = 'https://api.oen.tw/api';
+    private const SANDBOX_API_URL    = 'https://api.testing.oen.tw/api';
 
     private const PRODUCTION_CHECKOUT_HOST = 'oen.tw';
     private const SANDBOX_CHECKOUT_HOST    = 'testing.oen.tw';
@@ -129,26 +132,33 @@ class OEN_API_Client {
         }
         $status_code = wp_remote_retrieve_response_code( $response );
         $body        = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        // The Hosted Checkout API returns raw resource objects on success and a
+        // Stripe-style `{ error: { code, message }, requestId }` envelope on
+        // failure. There is no `code: 'S0000'` / `data` wrapper.
         if ( $status_code < 200 || $status_code >= 300 ) {
+            $error   = ( is_array( $body ) && is_array( $body['error'] ?? null ) ) ? $body['error'] : [];
+            $code    = (string) ( $error['code'] ?? ( is_array( $body ) ? ( $body['code'] ?? 'UNKNOWN' ) : 'UNKNOWN' ) );
+            $message = (string) ( $error['message'] ?? ( is_array( $body ) ? ( $body['message'] ?? '' ) : '' ) );
+            if ( '' === $message ) {
+                $message = 'Unknown error';
+            }
             throw new \RuntimeException(
                 sprintf(
-                    __( 'OEN Payment API returned HTTP %1$d: %2$s', 'woocommerce-oen-payment' ),
-                    $status_code,
-                    $body['message'] ?? 'Unknown error'
-                )
-            );
-        }
-        if ( ! is_array( $body ) || ( $body['code'] ?? '' ) !== 'S0000' ) {
-            $code    = $body['code'] ?? 'UNKNOWN';
-            $message = $body['message'] ?? 'Unknown error';
-            throw new \RuntimeException(
-                sprintf(
-                    __( 'OEN Payment API error [%1$s]: %2$s', 'woocommerce-oen-payment' ),
+                    __( 'OEN Payment API error [%1$s] (HTTP %2$d): %3$s', 'woocommerce-oen-payment' ),
                     $code,
+                    $status_code,
                     $message
                 )
             );
         }
-        return $body['data'] ?? [];
+
+        if ( ! is_array( $body ) ) {
+            throw new \RuntimeException(
+                __( 'OEN Payment API returned an unexpected response.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        return $body;
     }
 }

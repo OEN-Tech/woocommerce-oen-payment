@@ -57,7 +57,7 @@ Webhook contract:
 * Webhook payloads arrive as an event envelope with the event `type` plus business payload nested under `data`
 * Hosted Checkout session ids are read from `data.id` with `data.sessionId` kept as a backward-compatible fallback
 * The current Hosted Checkout event types are `checkout_session.completed`, `checkout_session.failed`, `checkout_session.expired`, and `checkout_session.cancelled`
-* When a session id is present, the webhook handler prefers `GET /hosted-checkout/v1/sessions/{sessionId}` verification and normalizes the verified session status through one helper path that prefers nested `transaction.status` before top-level `status`
+* When a session id is present, the webhook handler prefers `GET /hosted-checkout/v1/sessions/{sessionId}` verification and normalizes the verified session status through one helper path that prefers the top-level `status` and falls back to nested `transaction.status` for forward compatibility
 * `transactionHid` verification remains a fallback only when the webhook does not contain a session id
 * Stale-attempt protection is primarily bound to `_oen_session_id`, so a matching current session id is accepted even if an older stored `_oen_transaction_hid` differs
 * After verified success, the plugin writes authoritative `transactionHid` and `transactionId` values back to order meta

@@ -271,22 +271,25 @@ function test_handler_maps_hosted_checkout_event_names_and_statuses(): void {
     );
 }
 
-function test_handler_ignores_top_level_completed_session_without_transaction_status(): void {
+function test_handler_accepts_top_level_completed_session_status(): void {
+    // The Hosted Checkout session API returns the authoritative lifecycle status
+    // at the top level, with no nested transaction object. A top-level
+    // `completed` status must resolve a completion event to success.
     $verified_status = OEN_Webhook_Handler::normalize_verified_session_status(
         [
-            'id'     => 'sess_ambiguous',
+            'id'     => 'sess_completed',
             'status' => 'completed',
         ]
     );
     $resolution      = OEN_Webhook_Handler::resolve_event_action( 'checkout_session.completed', $verified_status );
 
     test_assert(
-        '' === $verified_status,
-        'Verified session status should stay empty when only the top-level lifecycle status is completed.'
+        'completed' === $verified_status,
+        'Top-level lifecycle status should be treated as the authoritative verified status.'
     );
     test_assert(
-        'ignore' === $resolution,
-        'Top-level completed session status without authoritative transaction.status must not resolve to success.'
+        'success' === $resolution,
+        'A completion event with a top-level completed session status must resolve to success.'
     );
 }
 
@@ -318,7 +321,7 @@ test_handler_allows_session_only_verified_attempt_when_session_matches();
 test_handler_prefers_matching_session_id_over_older_transaction_hid();
 test_handler_rejects_session_only_attempt_without_stored_session_or_matching_transaction_hid();
 test_handler_maps_hosted_checkout_event_names_and_statuses();
-test_handler_ignores_top_level_completed_session_without_transaction_status();
+test_handler_accepts_top_level_completed_session_status();
 test_handler_requires_amount_for_verified_session_binding();
 
 echo "Webhook parser smoke harness passed.\n";

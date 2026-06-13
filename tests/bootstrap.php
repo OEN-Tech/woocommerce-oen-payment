@@ -74,10 +74,7 @@ function wp_remote_post( string $url, array $args = [] ): array|TestWpError {
 
     return array_shift( $GLOBALS['test_http_post_queue'] ) ?? [
         'response' => [ 'code' => 200 ],
-        'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [],
-        ] ),
+        'body'     => wp_json_encode( [] ),
     ];
 }
 
@@ -89,10 +86,7 @@ function wp_remote_get( string $url, array $args = [] ): array|TestWpError {
 
     return array_shift( $GLOBALS['test_http_get_queue'] ) ?? [
         'response' => [ 'code' => 200 ],
-        'body'     => wp_json_encode( [
-            'code' => 'S0000',
-            'data' => [],
-        ] ),
+        'body'     => wp_json_encode( [] ),
     ];
 }
 

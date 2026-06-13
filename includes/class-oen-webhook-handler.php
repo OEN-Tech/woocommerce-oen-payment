@@ -201,20 +201,23 @@ class OEN_Webhook_Handler {
     /**
      * Normalize the authoritative payment status from a verified Hosted Checkout session payload.
      *
-     * Prefer the nested transaction status when present to avoid contradictory
-     * interpretations between session lifecycle state and payment outcome state.
+     * The Hosted Checkout session API returns the lifecycle status at the top
+     * level (`completed`|`failed`|`expired`|`cancelled`). A nested
+     * `transaction.status` is accepted only as a fallback for forward
+     * compatibility with future payload shapes.
      *
      * @param array<string, mixed> $session Verified Hosted Checkout session payload.
      */
     public static function normalize_verified_session_status( array $session ): string {
-        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
-        $status      = sanitize_text_field( (string) ( $transaction['status'] ?? '' ) );
+        $status = sanitize_text_field( (string) ( $session['status'] ?? '' ) );
 
         if ( '' !== $status ) {
             return $status;
         }
 
-        return '';
+        $transaction = is_array( $session['transaction'] ?? null ) ? $session['transaction'] : [];
+
+        return sanitize_text_field( (string) ( $transaction['status'] ?? '' ) );
     }
 
     /**
