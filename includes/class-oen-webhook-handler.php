@@ -34,6 +34,18 @@ class OEN_Webhook_Handler {
         $event_type = sanitize_text_field( $payload['type'] ?? '' );
         $event_data = $payload['data'] ?? null;
 
+        // Refund events correlate by sessionId (their payload has no orderId), so
+        // they are routed before the checkout-session orderId validation below.
+        if ( '' !== $event_type && str_starts_with( $event_type, 'refund.' ) ) {
+            if ( ! is_array( $event_data ) ) {
+                $this->log( 'Invalid refund webhook payload: missing data', $raw_body );
+                wp_send_json( [ 'status' => 'error', 'message' => 'Invalid payload' ], 400 );
+                return;
+            }
+            $this->handle_refund_event( $event_type, $event_data, $raw_body );
+            return;
+        }
+
         if ( '' === $event_type || ! is_array( $event_data ) || empty( $event_data['orderId'] ) ) {
             $this->log( 'Invalid webhook payload: missing orderId in event data', $raw_body );
             wp_send_json( [ 'status' => 'error', 'message' => 'Invalid payload' ], 400 );
@@ -129,6 +141,184 @@ class OEN_Webhook_Handler {
         }
 
         wp_send_json( $response, $response_code );
+    }
+
+    /**
+     * Process a refund.* webhook event and mirror it into a WooCommerce refund.
+     *
+     * Refund events correlate to the order by the Hosted Checkout session id
+     * (their payload carries no orderId). A synchronous (card) refund emits both
+     * refund.created and refund.succeeded with the same data, so the WooCommerce
+     * refund is created only on the terminal refund.succeeded event and is made
+     * idempotent on the refund id to avoid double refunds.
+     *
+     * @param string               $event_type Webhook event type (refund.*).
+     * @param array<string, mixed> $event_data Refund event data object.
+     * @param string               $raw_body   Raw request body for logging.
+     */
+    private function handle_refund_event( string $event_type, array $event_data, string $raw_body ): void {
+        $session_id = sanitize_text_field( (string) ( $event_data['sessionId'] ?? '' ) );
+        $refund_id  = sanitize_text_field( (string) ( $event_data['id'] ?? '' ) );
+        $status     = sanitize_text_field( (string) ( $event_data['status'] ?? '' ) );
+        $reason     = sanitize_text_field( (string) ( $event_data['reason'] ?? '' ) );
+
+        if ( '' === $session_id || '' === $refund_id ) {
+            $this->log( 'Refund webhook missing sessionId or refund id', $raw_body );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Invalid refund payload' ], 400 );
+            return;
+        }
+
+        // Only the terminal success event creates a WooCommerce refund. refund.created
+        // fires alongside refund.succeeded for synchronous refunds — acknowledge it
+        // without acting so the two events cannot create duplicate refunds.
+        if ( 'refund.succeeded' !== $event_type ) {
+            wp_send_json( [ 'status' => 'ok', 'message' => 'Refund event acknowledged' ], 200 );
+            return;
+        }
+
+        if ( 'refunded' !== $status ) {
+            $this->log(
+                sprintf( 'refund.succeeded for %s carried non-terminal status: %s', $refund_id, $status ?: 'unknown' )
+            );
+            wp_send_json( [ 'status' => 'ok', 'message' => 'Refund not in terminal state' ], 200 );
+            return;
+        }
+
+        $order = $this->find_order_by_session_id( $session_id );
+
+        if ( ! $order ) {
+            $this->log( 'Refund webhook: no order found for sessionId ' . $session_id );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Order not found' ], 404 );
+            return;
+        }
+
+        $order_id = $order->get_id();
+
+        if ( ! $this->acquire_lock( $order_id ) ) {
+            $this->log( 'Refund: order #' . $order_id . ' is being processed by another request.' );
+            wp_send_json( [ 'status' => 'error', 'message' => 'Processing in progress' ], 409 );
+            return;
+        }
+
+        $response      = [ 'status' => 'ok' ];
+        $response_code = 200;
+
+        try {
+            $order = wc_get_order( $order_id );
+
+            if ( ! $order ) {
+                $response      = [ 'status' => 'error', 'message' => 'Order not found' ];
+                $response_code = 404;
+            } elseif ( $this->is_refund_processed( $order, $refund_id ) ) {
+                $this->log( 'Refund ' . $refund_id . ' already processed for order #' . $order_id );
+                $response = [ 'status' => 'ok', 'message' => 'Refund already processed' ];
+            } else {
+                $amount = intval( $event_data['amount'] ?? 0 );
+
+                if ( $amount <= 0 ) {
+                    $this->log( 'Refund webhook: non-positive amount for refund ' . $refund_id );
+                    $response      = [ 'status' => 'error', 'message' => 'Invalid refund amount' ];
+                    $response_code = 400;
+                } elseif ( $this->create_wc_refund( $order, $amount, $reason, $refund_id ) ) {
+                    $this->mark_refund_processed( $order, $refund_id );
+                    $response = [ 'status' => 'ok' ];
+                } else {
+                    $response      = [ 'status' => 'error', 'message' => 'Refund creation failed' ];
+                    $response_code = 502;
+                }
+            }
+        } finally {
+            $this->release_lock( $order_id );
+        }
+
+        wp_send_json( $response, $response_code );
+    }
+
+    /**
+     * Create a WooCommerce refund mirroring the OEN refund. Amount is in the WC
+     * order currency (refund events carry no currency; the order's is authoritative).
+     *
+     * @param \WC_Order $order     The WooCommerce order.
+     * @param int       $amount    Refund amount in major currency units.
+     * @param string    $reason    Refund reason, if any.
+     * @param string    $refund_id OEN refund id for the order note.
+     */
+    private function create_wc_refund( \WC_Order $order, int $amount, string $reason, string $refund_id ): bool {
+        $note = sprintf(
+            /* translators: %s: OEN refund id */
+            __( 'OEN refund %s', 'woocommerce-oen-payment' ),
+            $refund_id
+        );
+
+        $result = wc_create_refund( [
+            'order_id' => $order->get_id(),
+            'amount'   => $amount,
+            'reason'   => '' !== $reason ? $reason : $note,
+        ] );
+
+        if ( is_wp_error( $result ) ) {
+            $this->log(
+                sprintf(
+                    'wc_create_refund failed for order #%1$d refund %2$s: %3$s',
+                    $order->get_id(),
+                    $refund_id,
+                    $result->get_error_message()
+                )
+            );
+            return false;
+        }
+
+        $order->add_order_note( $note );
+        $this->log(
+            sprintf( 'Created WC refund for order #%1$d amount %2$d (OEN refund %3$s)', $order->get_id(), $amount, $refund_id )
+        );
+
+        return true;
+    }
+
+    /**
+     * Whether an OEN refund id has already been mirrored into WooCommerce.
+     *
+     * @param \WC_Order $order     The WooCommerce order.
+     * @param string    $refund_id OEN refund id.
+     */
+    private function is_refund_processed( \WC_Order $order, string $refund_id ): bool {
+        $processed = $order->get_meta( '_oen_processed_refund_ids' );
+        $processed = is_array( $processed ) ? $processed : [];
+
+        return in_array( $refund_id, $processed, true );
+    }
+
+    /**
+     * Record that an OEN refund id has been mirrored, for idempotency on retries
+     * and on the paired refund.created/refund.succeeded events.
+     *
+     * @param \WC_Order $order     The WooCommerce order.
+     * @param string    $refund_id OEN refund id.
+     */
+    private function mark_refund_processed( \WC_Order $order, string $refund_id ): void {
+        $processed   = $order->get_meta( '_oen_processed_refund_ids' );
+        $processed   = is_array( $processed ) ? $processed : [];
+        $processed[] = $refund_id;
+
+        $order->update_meta_data( '_oen_processed_refund_ids', array_values( array_unique( $processed ) ) );
+        $order->save();
+    }
+
+    /**
+     * Find a WC order by the Hosted Checkout session id stored in meta.
+     *
+     * @param string $session_id The OEN hosted checkout session id.
+     * @return \WC_Order|null
+     */
+    private function find_order_by_session_id( string $session_id ): ?\WC_Order {
+        $orders = wc_get_orders( [
+            'meta_key'   => '_oen_session_id',
+            'meta_value' => $session_id,
+            'limit'      => 1,
+        ] );
+
+        return $orders[0] ?? null;
     }
 
     /**

@@ -57,7 +57,31 @@ function wc_get_logger(): object {
         public function info( string $message, array $context = [] ): void {}
 
         public function debug( string $message, array $context = [] ): void {}
+
+        public function error( string $message, array $context = [] ): void {}
     };
+}
+
+final class RouterWpError {
+    public function __construct( private string $message ) {}
+
+    public function get_error_message(): string {
+        return $this->message;
+    }
+}
+
+function is_wp_error( mixed $thing ): bool {
+    return $thing instanceof RouterWpError;
+}
+
+function wc_create_refund( array $args ): object {
+    $GLOBALS['test_refunds'][] = $args;
+
+    if ( ! empty( $GLOBALS['test_refund_should_fail'] ) ) {
+        return new RouterWpError( 'simulated refund failure' );
+    }
+
+    return (object) [ 'id' => 9001 ];
 }
 
 final class WC_Order {
@@ -125,22 +149,34 @@ final class WC_Order {
     }
 }
 
-$GLOBALS['test_webhook_case']  = $test_case;
-$GLOBALS['test_order_id']      = 2001;
-$GLOBALS['test_order_lookup']  = 'wc-order-2001';
+$GLOBALS['test_webhook_case']        = $test_case;
+$GLOBALS['test_order_id']            = 2001;
+$GLOBALS['test_order_lookup']        = 'wc-order-2001';
+$GLOBALS['test_refunds']             = [];
+$GLOBALS['test_refund_should_fail']  = ( 'refund_fail' === $test_case );
 $GLOBALS['test_order_session'] = match ( $test_case ) {
     'ambiguous_completed' => 'sess_ambiguous',
     'signed_ambiguous_completed' => 'sess_ambiguous',
     'missing_amount' => 'sess_missing_amount',
+    'refund_succeeded', 'refund_created', 'refund_already_processed', 'refund_fail' => 'cs_refund_test',
     default => 'sess_default',
 };
 $GLOBALS['test_order']         = new WC_Order( $GLOBALS['test_order_id'], 1234 );
 $GLOBALS['test_order']->update_meta_data( '_oen_order_id', $GLOBALS['test_order_lookup'] );
 $GLOBALS['test_order']->update_meta_data( '_oen_session_id', $GLOBALS['test_order_session'] );
+if ( 'refund_already_processed' === $test_case ) {
+    $GLOBALS['test_order']->update_meta_data( '_oen_processed_refund_ids', [ 'rf_dup' ] );
+}
 
 function wc_get_orders( array $args ): array {
-    if ( ( $args['meta_key'] ?? '' ) === '_oen_order_id'
-        && ( $args['meta_value'] ?? '' ) === ( $GLOBALS['test_order_lookup'] ?? '' ) ) {
+    $key = $args['meta_key'] ?? '';
+    $val = $args['meta_value'] ?? '';
+
+    if ( '_oen_order_id' === $key && $val === ( $GLOBALS['test_order_lookup'] ?? '' ) ) {
+        return [ $GLOBALS['test_order'] ];
+    }
+
+    if ( '_oen_session_id' === $key && $val === ( $GLOBALS['test_order_session'] ?? '' ) ) {
         return [ $GLOBALS['test_order'] ];
     }
 
@@ -161,6 +197,7 @@ function wp_send_json( array $data, int $status_code = 200 ): void {
     echo json_encode( [
         'payload' => $data,
         'order'   => $GLOBALS['test_order']->export_state(),
+        'refunds' => $GLOBALS['test_refunds'] ?? [],
     ] );
     exit;
 }

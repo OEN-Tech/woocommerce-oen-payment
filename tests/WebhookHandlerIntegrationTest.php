@@ -299,9 +299,155 @@ function test_handle_rejects_invalid_signature_before_processing_webhook(): void
     }
 }
 
+function test_handle_refund_succeeded_creates_wc_refund(): void {
+    $server = integration_start_server();
+
+    try {
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_succeeded',
+            [
+                'type' => 'refund.succeeded',
+                'data' => [
+                    'id'        => 'rf_success_1',
+                    'sessionId' => 'cs_refund_test',
+                    'amount'    => 500,
+                    'status'    => 'refunded',
+                    'reason'    => 'customer request',
+                    'mode'      => 'test',
+                    'createdAt' => '2026-04-05T00:00:00+00:00',
+                ],
+            ]
+        );
+
+        test_assert(
+            200 === $result['status_code'],
+            'A refund.succeeded event should return HTTP 200.'
+        );
+        test_assert(
+            1 === count( $result['body']['refunds'] ?? [] ),
+            'refund.succeeded should create exactly one WooCommerce refund.'
+        );
+        test_assert(
+            500 === ( $result['body']['refunds'][0]['amount'] ?? null )
+                && 2001 === ( $result['body']['refunds'][0]['order_id'] ?? null ),
+            'The WooCommerce refund should use the event amount and the session-correlated order id.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
+function test_handle_refund_created_is_acknowledged_without_refunding(): void {
+    $server = integration_start_server();
+
+    try {
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_created',
+            [
+                'type' => 'refund.created',
+                'data' => [
+                    'id'        => 'rf_created_1',
+                    'sessionId' => 'cs_refund_test',
+                    'amount'    => 500,
+                    'status'    => 'refunded',
+                    'mode'      => 'test',
+                    'createdAt' => '2026-04-05T00:00:00+00:00',
+                ],
+            ]
+        );
+
+        test_assert(
+            200 === $result['status_code'],
+            'A refund.created event should be acknowledged with HTTP 200.'
+        );
+        test_assert(
+            0 === count( $result['body']['refunds'] ?? [ 'sentinel' ] ),
+            'refund.created must not create a WooCommerce refund (refund.succeeded does).'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
+function test_handle_refund_succeeded_is_idempotent(): void {
+    $server = integration_start_server();
+
+    try {
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_already_processed',
+            [
+                'type' => 'refund.succeeded',
+                'data' => [
+                    'id'        => 'rf_dup',
+                    'sessionId' => 'cs_refund_test',
+                    'amount'    => 500,
+                    'status'    => 'refunded',
+                    'mode'      => 'test',
+                    'createdAt' => '2026-04-05T00:00:00+00:00',
+                ],
+            ]
+        );
+
+        test_assert(
+            200 === $result['status_code'],
+            'A duplicate refund.succeeded should return HTTP 200.'
+        );
+        test_assert(
+            ( $result['body']['payload']['message'] ?? null ) === 'Refund already processed',
+            'An already-processed refund id should be recognized as idempotent.'
+        );
+        test_assert(
+            0 === count( $result['body']['refunds'] ?? [ 'sentinel' ] ),
+            'An already-processed refund must not create a second WooCommerce refund.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
+function test_handle_refund_for_unknown_session_returns_404(): void {
+    $server = integration_start_server();
+
+    try {
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_succeeded',
+            [
+                'type' => 'refund.succeeded',
+                'data' => [
+                    'id'        => 'rf_orphan',
+                    'sessionId' => 'cs_does_not_match',
+                    'amount'    => 500,
+                    'status'    => 'refunded',
+                    'mode'      => 'test',
+                    'createdAt' => '2026-04-05T00:00:00+00:00',
+                ],
+            ]
+        );
+
+        test_assert(
+            404 === $result['status_code'],
+            'A refund for an unknown session id should return HTTP 404.'
+        );
+        test_assert(
+            0 === count( $result['body']['refunds'] ?? [ 'sentinel' ] ),
+            'No WooCommerce refund should be created for an unknown session.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
 test_handle_marks_order_paid_for_completed_session();
 test_handle_fails_closed_when_verified_session_amount_is_missing();
 test_handle_marks_order_paid_for_valid_signed_completed_session();
 test_handle_rejects_invalid_signature_before_processing_webhook();
+test_handle_refund_succeeded_creates_wc_refund();
+test_handle_refund_created_is_acknowledged_without_refunding();
+test_handle_refund_succeeded_is_idempotent();
+test_handle_refund_for_unknown_session_returns_404();
 
 echo "Webhook handler integration harness passed.\n";
