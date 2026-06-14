@@ -114,12 +114,19 @@ class OEN_Settings extends WC_Settings_Page {
     }
 
     /**
-     * Register a Hosted Checkout webhook and persist its id + signing secret.
-     *
-     * Registers on first save (no stored webhook id) or when "Re-register webhook"
-     * is ticked. Failures surface as a settings error and never block the save.
+     * Register the Hosted Checkout webhook on first save, or refresh it on an
+     * explicit re-register. Reconciles by URL (update + rotate-secret in place)
+     * so it never creates duplicate webhooks or clobbers a manually configured
+     * secret. Failures surface as a settings error and never block the save.
      */
     private function maybe_register_webhook(): void {
+        // Consume the one-shot re-register flag up front so it can never persist
+        // past a save that skips registration (e.g. gateway disabled).
+        $force = 'yes' === get_option( 'oen_webhook_reregister', 'no' );
+        if ( $force ) {
+            update_option( 'oen_webhook_reregister', 'no' );
+        }
+
         if ( 'yes' !== get_option( 'oen_enabled', 'no' ) ) {
             return;
         }
@@ -128,17 +135,23 @@ class OEN_Settings extends WC_Settings_Page {
             return;
         }
 
-        $force = 'yes' === get_option( 'oen_webhook_reregister', 'no' );
+        $stored_id     = (string) get_option( 'oen_webhook_id', '' );
+        $stored_secret = (string) get_option( 'oen_webhook_secret', '' );
 
-        if ( '' !== (string) get_option( 'oen_webhook_id', '' ) && ! $force ) {
+        // Already registered and tracked: nothing to do on an ordinary save.
+        if ( '' !== $stored_id && ! $force ) {
+            return;
+        }
+
+        // Legacy/manual install (a secret was set by hand, no tracked webhook id):
+        // do not silently re-create and clobber it — only act on explicit re-register.
+        if ( '' === $stored_id && '' !== $stored_secret && ! $force ) {
             return;
         }
 
         try {
-            $client = OEN_API_Client::from_settings();
-            $result = $client->create_webhook( self::webhook_url(), self::webhook_events() );
+            $this->register_or_reconcile_webhook( OEN_API_Client::from_settings() );
         } catch ( \Throwable $exception ) {
-            update_option( 'oen_webhook_reregister', 'no' );
             WC_Admin_Settings::add_error(
                 sprintf(
                     /* translators: %s: error message */
@@ -146,14 +159,47 @@ class OEN_Settings extends WC_Settings_Page {
                     $exception->getMessage()
                 )
             );
+        }
+    }
+
+    /**
+     * Adopt and refresh an existing webhook for this site URL (update events +
+     * rotate the signing secret), or create a new one when none exists. Looking up
+     * by URL avoids duplicate webhooks and lets the plugin take over a webhook a
+     * merchant created manually.
+     */
+    private function register_or_reconcile_webhook( OEN_API_Client $client ): void {
+        $url    = self::webhook_url();
+        $events = self::webhook_events();
+
+        $existing_id = '';
+        foreach ( $client->list_webhooks() as $webhook ) {
+            if ( is_array( $webhook ) && ( $webhook['url'] ?? '' ) === $url ) {
+                $existing_id = sanitize_text_field( (string) ( $webhook['id'] ?? '' ) );
+                break;
+            }
+        }
+
+        if ( '' !== $existing_id ) {
+            $client->update_webhook( $existing_id, $url, $events );
+            $rotated = $client->rotate_webhook_secret( $existing_id );
+            $this->store_webhook( $existing_id, sanitize_text_field( (string) ( $rotated['secret'] ?? '' ) ), true );
             return;
         }
 
-        $webhook_id = sanitize_text_field( (string) ( $result['id'] ?? '' ) );
-        $secret     = sanitize_text_field( (string) ( $result['secret'] ?? '' ) );
+        $created = $client->create_webhook( $url, $events );
+        $this->store_webhook(
+            sanitize_text_field( (string) ( $created['id'] ?? '' ) ),
+            sanitize_text_field( (string) ( $created['secret'] ?? '' ) ),
+            false
+        );
+    }
 
-        update_option( 'oen_webhook_reregister', 'no' );
-
+    /**
+     * Persist the registered/adopted webhook id and signing secret, or surface a
+     * settings error when the response did not carry both.
+     */
+    private function store_webhook( string $webhook_id, string $secret, bool $reconciled ): void {
         if ( '' === $webhook_id || '' === $secret ) {
             WC_Admin_Settings::add_error(
                 __( 'OEN webhook registration returned an unexpected response (no id or secret).', 'woocommerce-oen-payment' )
@@ -165,11 +211,17 @@ class OEN_Settings extends WC_Settings_Page {
         update_option( 'oen_webhook_secret', $secret );
 
         WC_Admin_Settings::add_message(
-            sprintf(
-                /* translators: %s: webhook id */
-                __( 'OEN webhook registered (%s). The signing secret was stored automatically.', 'woocommerce-oen-payment' ),
-                $webhook_id
-            )
+            $reconciled
+                ? sprintf(
+                    /* translators: %s: webhook id */
+                    __( 'OEN webhook updated (%s) and its signing secret refreshed.', 'woocommerce-oen-payment' ),
+                    $webhook_id
+                )
+                : sprintf(
+                    /* translators: %s: webhook id */
+                    __( 'OEN webhook registered (%s). The signing secret was stored automatically.', 'woocommerce-oen-payment' ),
+                    $webhook_id
+                )
         );
     }
 

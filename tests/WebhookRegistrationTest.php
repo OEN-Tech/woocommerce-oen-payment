@@ -62,137 +62,206 @@ if ( ! class_exists( 'WC_Admin_Settings', false ) ) {
 require_once __DIR__ . '/../includes/class-oen-api-client.php';
 require_once __DIR__ . '/../includes/class-oen-settings.php';
 
+const REG_URL = 'https://store.example/?wc-api=oen_payment';
+
 function reg_reset(): void {
-    $GLOBALS['test_options']          = [];
-    $GLOBALS['test_http_post_calls']  = [];
-    $GLOBALS['test_http_post_queue']  = [];
-    $GLOBALS['test_admin_errors']     = [];
-    $GLOBALS['test_admin_messages']   = [];
+    $GLOBALS['test_options']            = [];
+    $GLOBALS['test_http_post_calls']    = [];
+    $GLOBALS['test_http_post_queue']    = [];
+    $GLOBALS['test_http_get_calls']     = [];
+    $GLOBALS['test_http_get_queue']     = [];
+    $GLOBALS['test_http_request_calls'] = [];
+    $GLOBALS['test_http_request_queue'] = [];
+    $GLOBALS['test_admin_errors']       = [];
+    $GLOBALS['test_admin_messages']     = [];
 }
 
-function reg_enqueue_webhook_response( string $id, string $secret ): void {
-    $GLOBALS['test_http_post_queue'][] = [
-        'response' => [ 'code' => 200 ],
-        'body'     => wp_json_encode( [ 'id' => $id, 'secret' => $secret, 'enabledEvents' => [ 'refund.succeeded' ] ] ),
+function reg_creds(): void {
+    $GLOBALS['test_options']['oen_enabled']     = 'yes';
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+}
+
+function reg_queue( string $kind, array $body, int $code = 200 ): void {
+    $GLOBALS[ 'test_http_' . $kind . '_queue' ][] = [
+        'response' => [ 'code' => $code ],
+        'body'     => wp_json_encode( $body ),
     ];
 }
 
 function test_registers_webhook_on_first_save(): void {
     reg_reset();
-    $GLOBALS['test_options']['oen_enabled']     = 'yes';
-    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
-    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
-    reg_enqueue_webhook_response( 'whk_1', 'whsec_1' );
+    reg_creds();
+    reg_queue( 'get', [ 'items' => [] ] );                          // list -> none
+    reg_queue( 'post', [ 'id' => 'whk_1', 'secret' => 'whsec_1' ] ); // create
 
     ( new OEN_Settings() )->save();
 
     test_assert(
         1 === count( $GLOBALS['test_http_post_calls'] ),
-        'First save with credentials and no stored webhook should register exactly one webhook.'
+        'First save should create exactly one webhook when none exists.'
     );
     test_assert(
         ( $GLOBALS['test_http_post_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/api/hosted-checkout/v1/webhooks',
-        'Webhook registration should POST to the /api/hosted-checkout/v1/webhooks endpoint.'
+        'Webhook creation should POST to the /api/hosted-checkout/v1/webhooks endpoint.'
     );
     $body = json_decode( (string) ( $GLOBALS['test_http_post_calls'][0]['args']['body'] ?? '' ), true );
     test_assert(
-        ( $body['url'] ?? null ) === 'https://store.example/?wc-api=oen_payment',
-        'Registration should send the site webhook endpoint URL.'
-    );
-    test_assert(
-        in_array( 'refund.succeeded', $body['enabledEvents'] ?? [], true )
-            && in_array( 'checkout_session.completed', $body['enabledEvents'] ?? [], true ),
-        'Registration should subscribe to the events the plugin handles.'
+        ( $body['url'] ?? null ) === REG_URL
+            && in_array( 'refund.succeeded', $body['enabledEvents'] ?? [], true ),
+        'Creation should send the site webhook URL and the handled events.'
     );
     test_assert(
         ( $GLOBALS['test_options']['oen_webhook_id'] ?? null ) === 'whk_1'
             && ( $GLOBALS['test_options']['oen_webhook_secret'] ?? null ) === 'whsec_1',
-        'The returned webhook id and signing secret should be stored automatically.'
+        'The webhook id and signing secret should be stored automatically.'
     );
     test_assert(
         1 === count( $GLOBALS['test_admin_messages'] ),
-        'A success notice should be shown after registration.'
+        'A success notice should be shown.'
     );
 }
 
-function test_skips_registration_when_already_registered(): void {
+function test_skips_when_already_registered(): void {
     reg_reset();
-    $GLOBALS['test_options']['oen_enabled']     = 'yes';
-    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
-    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
-    $GLOBALS['test_options']['oen_webhook_id']  = 'whk_existing';
-    reg_enqueue_webhook_response( 'whk_new', 'whsec_new' );
+    reg_creds();
+    $GLOBALS['test_options']['oen_webhook_id']     = 'whk_existing';
+    $GLOBALS['test_options']['oen_webhook_secret'] = 'whsec_existing';
 
     ( new OEN_Settings() )->save();
 
     test_assert(
-        0 === count( $GLOBALS['test_http_post_calls'] ),
-        'An already-registered webhook should not be re-registered on an ordinary save.'
-    );
-    test_assert(
-        ( $GLOBALS['test_options']['oen_webhook_id'] ?? null ) === 'whk_existing',
-        'The existing webhook id should be left untouched.'
+        0 === count( $GLOBALS['test_http_get_calls'] )
+            && 0 === count( $GLOBALS['test_http_post_calls'] )
+            && 0 === count( $GLOBALS['test_http_request_calls'] ),
+        'An already-registered webhook should make no API calls on an ordinary save.'
     );
 }
 
-function test_force_reregister_creates_new_webhook(): void {
+function test_legacy_secret_not_clobbered_on_ordinary_save(): void {
     reg_reset();
-    $GLOBALS['test_options']['oen_enabled']            = 'yes';
-    $GLOBALS['test_options']['oen_merchant_id']        = 'merchant-123';
-    $GLOBALS['test_options']['oen_api_token']          = 'sk_test_secret';
+    reg_creds();
+    $GLOBALS['test_options']['oen_webhook_secret'] = 'manual_secret'; // set by hand, no id
+
+    ( new OEN_Settings() )->save();
+
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ) && 0 === count( $GLOBALS['test_http_get_calls'] ),
+        'A manually configured secret with no tracked id must not trigger registration on an ordinary save.'
+    );
+    test_assert(
+        ( $GLOBALS['test_options']['oen_webhook_secret'] ?? null ) === 'manual_secret',
+        'The manual secret must be left untouched.'
+    );
+}
+
+function test_force_reregister_updates_and_rotates_existing(): void {
+    reg_reset();
+    reg_creds();
     $GLOBALS['test_options']['oen_webhook_id']         = 'whk_existing';
+    $GLOBALS['test_options']['oen_webhook_secret']     = 'whsec_old';
     $GLOBALS['test_options']['oen_webhook_reregister'] = 'yes';
-    reg_enqueue_webhook_response( 'whk_new', 'whsec_new' );
+    reg_queue( 'get', [ 'items' => [ [ 'id' => 'whk_existing', 'url' => REG_URL ] ] ] ); // list -> match
+    reg_queue( 'request', [ 'id' => 'whk_existing', 'url' => REG_URL ] );                // update (PUT)
+    reg_queue( 'post', [ 'id' => 'whk_existing', 'secret' => 'whsec_rotated' ] );        // rotate-secret
 
     ( new OEN_Settings() )->save();
 
     test_assert(
-        1 === count( $GLOBALS['test_http_post_calls'] ),
-        'Ticking re-register should register a new webhook even when one already exists.'
+        1 === count( $GLOBALS['test_http_request_calls'] ),
+        'Re-registering an existing webhook should update it in place (PUT), not create a duplicate.'
+    );
+    test_assert(
+        str_ends_with( (string) ( $GLOBALS['test_http_post_calls'][0]['url'] ?? '' ), '/webhooks/whk_existing/rotate-secret' ),
+        'Re-register should rotate the existing webhook secret.'
+    );
+    test_assert(
+        ( $GLOBALS['test_options']['oen_webhook_secret'] ?? null ) === 'whsec_rotated'
+            && ( $GLOBALS['test_options']['oen_webhook_id'] ?? null ) === 'whk_existing',
+        'The rotated secret should be stored and the webhook id preserved.'
+    );
+    test_assert(
+        ( $GLOBALS['test_options']['oen_webhook_reregister'] ?? null ) === 'no',
+        'The re-register flag should reset after running.'
+    );
+}
+
+function test_force_reregister_adopts_legacy_webhook_by_url(): void {
+    reg_reset();
+    reg_creds();
+    $GLOBALS['test_options']['oen_webhook_secret']     = 'manual_secret'; // legacy, no id
+    $GLOBALS['test_options']['oen_webhook_reregister'] = 'yes';
+    reg_queue( 'get', [ 'items' => [ [ 'id' => 'whk_legacy', 'url' => REG_URL ] ] ] );
+    reg_queue( 'request', [ 'id' => 'whk_legacy', 'url' => REG_URL ] );
+    reg_queue( 'post', [ 'id' => 'whk_legacy', 'secret' => 'whsec_rotated' ] );
+
+    ( new OEN_Settings() )->save();
+
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ) || ! str_ends_with( (string) ( $GLOBALS['test_http_post_calls'][0]['url'] ?? '' ), '/webhooks' ),
+        'Adopting an existing webhook by URL must not create a new one.'
+    );
+    test_assert(
+        ( $GLOBALS['test_options']['oen_webhook_id'] ?? null ) === 'whk_legacy'
+            && ( $GLOBALS['test_options']['oen_webhook_secret'] ?? null ) === 'whsec_rotated',
+        'The legacy webhook should be adopted (id stored, secret rotated).'
+    );
+}
+
+function test_force_reregister_creates_when_no_match(): void {
+    reg_reset();
+    reg_creds();
+    $GLOBALS['test_options']['oen_webhook_id']         = 'whk_old';
+    $GLOBALS['test_options']['oen_webhook_reregister'] = 'yes';
+    reg_queue( 'get', [ 'items' => [ [ 'id' => 'whk_old', 'url' => 'https://old.example/?wc-api=oen_payment' ] ] ] );
+    reg_queue( 'post', [ 'id' => 'whk_new', 'secret' => 'whsec_new' ] );
+
+    ( new OEN_Settings() )->save();
+
+    test_assert(
+        1 === count( $GLOBALS['test_http_post_calls'] )
+            && str_ends_with( (string) ( $GLOBALS['test_http_post_calls'][0]['url'] ?? '' ), '/webhooks' ),
+        'When no webhook matches the current URL, re-register should create a new one.'
     );
     test_assert(
         ( $GLOBALS['test_options']['oen_webhook_id'] ?? null ) === 'whk_new'
             && ( $GLOBALS['test_options']['oen_webhook_secret'] ?? null ) === 'whsec_new',
-        'Re-registration should replace the stored webhook id and secret.'
-    );
-    test_assert(
-        ( $GLOBALS['test_options']['oen_webhook_reregister'] ?? null ) === 'no',
-        'The re-register flag should reset itself after running.'
+        'The newly created webhook id and secret should be stored.'
     );
 }
 
-function test_skips_registration_when_disabled_or_missing_credentials(): void {
+function test_skips_and_resets_flag_when_disabled_or_no_credentials(): void {
     reg_reset();
-    $GLOBALS['test_options']['oen_enabled']     = 'no';
-    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
-    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
-    reg_enqueue_webhook_response( 'whk_1', 'whsec_1' );
+    $GLOBALS['test_options']['oen_enabled']            = 'no';
+    $GLOBALS['test_options']['oen_merchant_id']        = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']          = 'sk_test_secret';
+    $GLOBALS['test_options']['oen_webhook_reregister'] = 'yes';
+
     ( new OEN_Settings() )->save();
+
     test_assert(
-        0 === count( $GLOBALS['test_http_post_calls'] ),
-        'A disabled gateway should not register a webhook.'
+        0 === count( $GLOBALS['test_http_get_calls'] ) && 0 === count( $GLOBALS['test_http_post_calls'] ),
+        'A disabled gateway should make no API calls.'
+    );
+    test_assert(
+        ( $GLOBALS['test_options']['oen_webhook_reregister'] ?? null ) === 'no',
+        'The re-register flag must reset even when the save skips registration.'
     );
 
     reg_reset();
     $GLOBALS['test_options']['oen_enabled'] = 'yes';
-    reg_enqueue_webhook_response( 'whk_1', 'whsec_1' );
     ( new OEN_Settings() )->save();
     test_assert(
-        0 === count( $GLOBALS['test_http_post_calls'] ),
-        'Missing MerchantID/Secret Key should not register a webhook.'
+        0 === count( $GLOBALS['test_http_get_calls'] ),
+        'Missing MerchantID/Secret Key should make no API calls.'
     );
 }
 
 function test_registration_failure_surfaces_error_and_stores_nothing(): void {
     reg_reset();
-    $GLOBALS['test_options']['oen_enabled']     = 'yes';
-    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
-    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+    reg_creds();
     $GLOBALS['test_options']['oen_webhook_reregister'] = 'yes';
-    $GLOBALS['test_http_post_queue'][] = [
-        'response' => [ 'code' => 400 ],
-        'body'     => wp_json_encode( [ 'error' => [ 'code' => 'INVALID_KEY', 'message' => 'bad key' ] ] ),
-    ];
+    reg_queue( 'get', [ 'error' => [ 'code' => 'INVALID_KEY', 'message' => 'bad key' ] ], 400 ); // list fails
 
     ( new OEN_Settings() )->save();
 
@@ -211,9 +280,12 @@ function test_registration_failure_surfaces_error_and_stores_nothing(): void {
 }
 
 test_registers_webhook_on_first_save();
-test_skips_registration_when_already_registered();
-test_force_reregister_creates_new_webhook();
-test_skips_registration_when_disabled_or_missing_credentials();
+test_skips_when_already_registered();
+test_legacy_secret_not_clobbered_on_ordinary_save();
+test_force_reregister_updates_and_rotates_existing();
+test_force_reregister_adopts_legacy_webhook_by_url();
+test_force_reregister_creates_when_no_match();
+test_skips_and_resets_flag_when_disabled_or_no_credentials();
 test_registration_failure_surfaces_error_and_stores_nothing();
 
 echo "Webhook registration harness passed.\n";

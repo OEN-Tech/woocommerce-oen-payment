@@ -35,10 +35,12 @@ if ( ! class_exists( 'WP_Error', false ) ) {
 }
 
 $GLOBALS['test_options']           = $GLOBALS['test_options'] ?? [];
-$GLOBALS['test_http_post_calls']   = $GLOBALS['test_http_post_calls'] ?? [];
-$GLOBALS['test_http_get_calls']    = $GLOBALS['test_http_get_calls'] ?? [];
+$GLOBALS['test_http_post_calls']    = $GLOBALS['test_http_post_calls'] ?? [];
+$GLOBALS['test_http_get_calls']     = $GLOBALS['test_http_get_calls'] ?? [];
 $GLOBALS['test_http_post_queue']    = $GLOBALS['test_http_post_queue'] ?? [];
 $GLOBALS['test_http_get_queue']     = $GLOBALS['test_http_get_queue'] ?? [];
+$GLOBALS['test_http_request_calls'] = $GLOBALS['test_http_request_calls'] ?? [];
+$GLOBALS['test_http_request_queue'] = $GLOBALS['test_http_request_queue'] ?? [];
 
 function __( string $text, string $domain = '' ): string {
     return $text;
@@ -85,6 +87,18 @@ function wp_remote_get( string $url, array $args = [] ): array|TestWpError {
     ];
 
     return array_shift( $GLOBALS['test_http_get_queue'] ) ?? [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [] ),
+    ];
+}
+
+function wp_remote_request( string $url, array $args = [] ): array|TestWpError {
+    $GLOBALS['test_http_request_calls'][] = [
+        'url'  => $url,
+        'args' => $args,
+    ];
+
+    return array_shift( $GLOBALS['test_http_request_queue'] ) ?? [
         'response' => [ 'code' => 200 ],
         'body'     => wp_json_encode( [] ),
     ];
