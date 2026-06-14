@@ -58,6 +58,8 @@ Webhook contract:
 * Hosted Checkout session ids are read from `data.id` with `data.sessionId` kept as a backward-compatible fallback
 * The current Hosted Checkout event types are `checkout_session.completed`, `checkout_session.failed`, `checkout_session.expired`, `checkout_session.cancelled`, `refund.created`, and `refund.succeeded`
 * `refund.succeeded` events are mirrored into a WooCommerce refund: the order is found by `data.sessionId` (matching the stored `_oen_session_id`), a refund is created for `data.amount` in the order currency, and the OEN refund id is recorded so paired `refund.created`/`refund.succeeded` events and retries cannot create duplicate refunds (`refund.created` is acknowledged without acting)
+* Refund events require a configured Webhook Secret and are rejected when none is set — unlike checkout-session events they have no server-side re-verification fallback, so their authenticity rests entirely on the signature
+* Note: only synchronous refunds (credit card, Line Pay) are mirrored today; CVS refunds and any future asynchronous (`refunding`) refunds are not yet exposed by the Hosted Checkout webhook contract
 * When a session id is present, the webhook handler prefers `GET /hosted-checkout/v1/sessions/{sessionId}` verification and normalizes the verified session status through one helper path that prefers the top-level `status` and falls back to nested `transaction.status` for forward compatibility
 * `transactionHid` verification remains a fallback only when the webhook does not contain a session id
 * Stale-attempt protection is primarily bound to `_oen_session_id`, so a matching current session id is accepted even if an older stored `_oen_transaction_hid` differs

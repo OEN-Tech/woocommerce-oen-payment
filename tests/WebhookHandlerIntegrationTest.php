@@ -303,21 +303,23 @@ function test_handle_refund_succeeded_creates_wc_refund(): void {
     $server = integration_start_server();
 
     try {
+        $payload = [
+            'type' => 'refund.succeeded',
+            'data' => [
+                'id'        => 'rf_success_1',
+                'sessionId' => 'cs_refund_test',
+                'amount'    => 500,
+                'status'    => 'refunded',
+                'reason'    => 'customer request',
+                'mode'      => 'test',
+                'createdAt' => '2026-04-05T00:00:00+00:00',
+            ],
+        ];
         $result = integration_post_webhook(
             $server['port'],
             'refund_succeeded',
-            [
-                'type' => 'refund.succeeded',
-                'data' => [
-                    'id'        => 'rf_success_1',
-                    'sessionId' => 'cs_refund_test',
-                    'amount'    => 500,
-                    'status'    => 'refunded',
-                    'reason'    => 'customer request',
-                    'mode'      => 'test',
-                    'createdAt' => '2026-04-05T00:00:00+00:00',
-                ],
-            ]
+            $payload,
+            [ 'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ) ]
         );
 
         test_assert(
@@ -342,20 +344,22 @@ function test_handle_refund_created_is_acknowledged_without_refunding(): void {
     $server = integration_start_server();
 
     try {
+        $payload = [
+            'type' => 'refund.created',
+            'data' => [
+                'id'        => 'rf_created_1',
+                'sessionId' => 'cs_refund_test',
+                'amount'    => 500,
+                'status'    => 'refunded',
+                'mode'      => 'test',
+                'createdAt' => '2026-04-05T00:00:00+00:00',
+            ],
+        ];
         $result = integration_post_webhook(
             $server['port'],
             'refund_created',
-            [
-                'type' => 'refund.created',
-                'data' => [
-                    'id'        => 'rf_created_1',
-                    'sessionId' => 'cs_refund_test',
-                    'amount'    => 500,
-                    'status'    => 'refunded',
-                    'mode'      => 'test',
-                    'createdAt' => '2026-04-05T00:00:00+00:00',
-                ],
-            ]
+            $payload,
+            [ 'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ) ]
         );
 
         test_assert(
@@ -375,20 +379,22 @@ function test_handle_refund_succeeded_is_idempotent(): void {
     $server = integration_start_server();
 
     try {
+        $payload = [
+            'type' => 'refund.succeeded',
+            'data' => [
+                'id'        => 'rf_dup',
+                'sessionId' => 'cs_refund_test',
+                'amount'    => 500,
+                'status'    => 'refunded',
+                'mode'      => 'test',
+                'createdAt' => '2026-04-05T00:00:00+00:00',
+            ],
+        ];
         $result = integration_post_webhook(
             $server['port'],
             'refund_already_processed',
-            [
-                'type' => 'refund.succeeded',
-                'data' => [
-                    'id'        => 'rf_dup',
-                    'sessionId' => 'cs_refund_test',
-                    'amount'    => 500,
-                    'status'    => 'refunded',
-                    'mode'      => 'test',
-                    'createdAt' => '2026-04-05T00:00:00+00:00',
-                ],
-            ]
+            $payload,
+            [ 'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ) ]
         );
 
         test_assert(
@@ -412,20 +418,22 @@ function test_handle_refund_for_unknown_session_returns_404(): void {
     $server = integration_start_server();
 
     try {
+        $payload = [
+            'type' => 'refund.succeeded',
+            'data' => [
+                'id'        => 'rf_orphan',
+                'sessionId' => 'cs_does_not_match',
+                'amount'    => 500,
+                'status'    => 'refunded',
+                'mode'      => 'test',
+                'createdAt' => '2026-04-05T00:00:00+00:00',
+            ],
+        ];
         $result = integration_post_webhook(
             $server['port'],
             'refund_succeeded',
-            [
-                'type' => 'refund.succeeded',
-                'data' => [
-                    'id'        => 'rf_orphan',
-                    'sessionId' => 'cs_does_not_match',
-                    'amount'    => 500,
-                    'status'    => 'refunded',
-                    'mode'      => 'test',
-                    'createdAt' => '2026-04-05T00:00:00+00:00',
-                ],
-            ]
+            $payload,
+            [ 'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ) ]
         );
 
         test_assert(
@@ -441,6 +449,81 @@ function test_handle_refund_for_unknown_session_returns_404(): void {
     }
 }
 
+function test_handle_refund_creation_failure_returns_502(): void {
+    $server = integration_start_server();
+
+    try {
+        $payload = [
+            'type' => 'refund.succeeded',
+            'data' => [
+                'id'        => 'rf_failed_1',
+                'sessionId' => 'cs_refund_test',
+                'amount'    => 500,
+                'status'    => 'refunded',
+                'mode'      => 'test',
+                'createdAt' => '2026-04-05T00:00:00+00:00',
+            ],
+        ];
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_fail',
+            $payload,
+            [ 'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ) ]
+        );
+
+        test_assert(
+            502 === $result['status_code'],
+            'A failed WooCommerce refund creation should return HTTP 502.'
+        );
+        test_assert(
+            ( $result['body']['payload']['message'] ?? null ) === 'Refund creation failed',
+            'A failed refund should report a creation failure.'
+        );
+        test_assert(
+            ! in_array( 'rf_failed_1', (array) ( $result['body']['order']['meta']['_oen_processed_refund_ids'] ?? [] ), true ),
+            'A failed refund must not be marked processed, so a retry can succeed.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
+function test_handle_refund_without_configured_secret_is_rejected(): void {
+    $server = integration_start_server();
+
+    try {
+        // No webhook secret configured for this case, so signature verification is
+        // skipped — a refund event must fail closed rather than act on an unsigned,
+        // potentially forged payload.
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_unsigned',
+            [
+                'type' => 'refund.succeeded',
+                'data' => [
+                    'id'        => 'rf_unsigned_1',
+                    'sessionId' => 'cs_refund_test',
+                    'amount'    => 500,
+                    'status'    => 'refunded',
+                    'mode'      => 'test',
+                    'createdAt' => '2026-04-05T00:00:00+00:00',
+                ],
+            ]
+        );
+
+        test_assert(
+            401 === $result['status_code'],
+            'A refund event must be rejected when no webhook secret is configured.'
+        );
+        test_assert(
+            0 === count( $result['body']['refunds'] ?? [ 'sentinel' ] ),
+            'No WooCommerce refund may be created from an unsigned refund event.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
 test_handle_marks_order_paid_for_completed_session();
 test_handle_fails_closed_when_verified_session_amount_is_missing();
 test_handle_marks_order_paid_for_valid_signed_completed_session();
@@ -449,5 +532,7 @@ test_handle_refund_succeeded_creates_wc_refund();
 test_handle_refund_created_is_acknowledged_without_refunding();
 test_handle_refund_succeeded_is_idempotent();
 test_handle_refund_for_unknown_session_returns_404();
+test_handle_refund_creation_failure_returns_502();
+test_handle_refund_without_configured_secret_is_rejected();
 
 echo "Webhook handler integration harness passed.\n";

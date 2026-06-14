@@ -157,6 +157,20 @@ class OEN_Webhook_Handler {
      * @param string               $raw_body   Raw request body for logging.
      */
     private function handle_refund_event( string $event_type, array $event_data, string $raw_body ): void {
+        // Refunds mutate money directly and, unlike the checkout-session path, have
+        // no server-side OEN re-verification fallback — their authenticity rests
+        // entirely on the webhook signature. Signature verification is skipped when
+        // no secret is configured, so refund events MUST fail closed without one to
+        // avoid acting on a forged, unsigned payload.
+        if ( '' === sanitize_text_field( (string) get_option( 'oen_webhook_secret', '' ) ) ) {
+            $this->log( 'Refund webhook rejected: a configured webhook secret is required to verify refund events', $raw_body );
+            wp_send_json(
+                [ 'status' => 'error', 'message' => 'Webhook signature verification is required for refund events' ],
+                401
+            );
+            return;
+        }
+
         $session_id = sanitize_text_field( (string) ( $event_data['sessionId'] ?? '' ) );
         $refund_id  = sanitize_text_field( (string) ( $event_data['id'] ?? '' ) );
         $status     = sanitize_text_field( (string) ( $event_data['status'] ?? '' ) );

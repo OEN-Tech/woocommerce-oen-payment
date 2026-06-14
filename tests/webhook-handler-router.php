@@ -41,8 +41,8 @@ function sanitize_text_field( mixed $value ): string {
 }
 
 function get_option( string $name, mixed $default = false ): mixed {
-    if ( 'oen_webhook_secret' === $name && str_starts_with( (string) ( $GLOBALS['test_webhook_case'] ?? '' ), 'signed_' ) ) {
-        return 'whsec_integration_secret';
+    if ( 'oen_webhook_secret' === $name ) {
+        return $GLOBALS['test_webhook_secret'] ?? '';
     }
 
     return $default;
@@ -154,11 +154,18 @@ $GLOBALS['test_order_id']            = 2001;
 $GLOBALS['test_order_lookup']        = 'wc-order-2001';
 $GLOBALS['test_refunds']             = [];
 $GLOBALS['test_refund_should_fail']  = ( 'refund_fail' === $test_case );
+$GLOBALS['test_webhook_secret']      = in_array( $test_case, [
+    'signed_ambiguous_completed',
+    'refund_succeeded',
+    'refund_created',
+    'refund_already_processed',
+    'refund_fail',
+], true ) ? 'whsec_integration_secret' : '';
 $GLOBALS['test_order_session'] = match ( $test_case ) {
     'ambiguous_completed' => 'sess_ambiguous',
     'signed_ambiguous_completed' => 'sess_ambiguous',
     'missing_amount' => 'sess_missing_amount',
-    'refund_succeeded', 'refund_created', 'refund_already_processed', 'refund_fail' => 'cs_refund_test',
+    'refund_succeeded', 'refund_created', 'refund_already_processed', 'refund_fail', 'refund_unsigned' => 'cs_refund_test',
     default => 'sess_default',
 };
 $GLOBALS['test_order']         = new WC_Order( $GLOBALS['test_order_id'], 1234 );
