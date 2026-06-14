@@ -14,6 +14,7 @@
 - 支援測試環境（sandbox）/ 正式環境切換
 - 支援繁體中文（zh_TW）及英文語系
 - 相容 WooCommerce HPOS（高效能訂單儲存）
+- 未付款訂單重複進入結帳時，會先在 order-level advisory lock 內驗證既有 Hosted Checkout session；只有既有 session 已終止時才建立新的付款 attempt
 
 ## 系統需求
 
@@ -25,7 +26,7 @@
 
 1. 將 `woocommerce-oen-payment` 資料夾上傳至 `/wp-content/plugins/`
 2. 在 WordPress 後台「外掛」頁面啟用外掛
-3. 前往 **WooCommerce > 設定 > OEN** 設定商店代碼（MerchantID）及 API 金鑰
+3. 前往 **WooCommerce > 設定 > OEN** 設定商店代碼（MerchantID）、Secret Key 與 Webhook Secret
 4. 前往 **WooCommerce > 設定 > 付款方式** 啟用「OEN 信用卡」及/或「OEN 超商繳費」
 5. 至 OEN CRM 後台設定 Webhook 網址：`https://你的網站網址/?wc-api=oen_payment`
 
@@ -41,13 +42,62 @@
 | 在 Email 中顯示付款資訊 | 在訂單通知信中加入金流編號、繳費代碼等資訊 |
 | OEN 測試環境 | 勾選後使用 OEN 測試環境 API |
 | 商店代碼 | OEN 商店代碼（MerchantID） |
-| API 金鑰 | OEN API Token（Bearer 認證） |
+| Secret Key | OEN API Secret Key（Bearer 認證，用於 Hosted Checkout Session API） |
+| Webhook Secret | 用於驗證 `OenPay-Signature` 的 HMAC 密鑰；留空則略過簽名驗證 |
 
 ### 付款流程
 
 **信用卡：** 消費者選擇「OEN 信用卡」→ 導向 OEN 結帳頁面 → 完成付款 → 返回商店感謝頁 → Webhook 通知更新訂單狀態
 
 **超商繳費：** 消費者選擇「OEN 超商繳費」→ 導向 OEN 結帳頁面取得繳費代碼 → 至超商繳費 → Webhook 通知更新訂單狀態
+
+### Hosted Checkout Session API
+
+外掛目前使用 OEN Hosted Checkout Session API：
+
+- `POST /hosted-checkout/v1/sessions`：建立 checkout session，回傳非空 `id` 與 `checkoutUrl`
+- `GET /hosted-checkout/v1/sessions/{sessionId}`：查詢單一 session 狀態
+
+`Authorization` header 應使用 `Bearer <Secret Key>`。
+
+建立 session 時不需要額外注入 `merchantId`；外掛會送出 `successUrl`、`failureUrl` 與 `cancelUrl`（返回購物車），再把回傳的 `id` 視為必要欄位。若 OEN API 未回傳非空 session id，結帳流程會直接失敗，避免將空的 `_oen_session_id` 寫入訂單後關閉 stale-attempt 保護。若同一張未付款訂單再次觸發 `process_payment()`，外掛會先在每張訂單的 advisory lock 內，用既有 `_oen_session_id` 呼叫 `GET /hosted-checkout/v1/sessions/{sessionId}`；只要該 session 仍在進行中，就會直接重導回已儲存的 `_oen_checkout_url`。若既有 session 驗證失敗，流程會 fail-closed 並向顧客顯示錯誤，不會偷偷建立新的 live session。只有在先前 session 已進入 `completed`、`charged`、`failed`、`expired`、`cancelled` 等不可重用狀態時才建立新的 attempt。
+
+### Webhook Signature 與 Event Envelope
+
+Webhook request 會帶 `OenPay-Signature` header，格式如下：
+
+```text
+OenPay-Signature: t=1712345678,v1=<hex_hmac_sha256>
+```
+
+簽名內容為：
+
+```text
+{timestamp}.{raw_body}
+```
+
+其中 `timestamp` 來自 header 的 `t`，HMAC 演算法為 `sha256`，使用 **Webhook Secret** 驗證。
+此外，外掛預設要求 `t` 必須落在目前時間前後 300 秒內，超過容忍範圍的簽名會被拒絕。
+
+Webhook body 為 event envelope，業務欄位位於巢狀的 `data` 物件中，例如：
+
+```json
+{
+  "id": "evt_test_123",
+  "type": "checkout_session.completed",
+  "data": {
+    "id": "sess_123",
+    "orderId": "wc_1001",
+    "transactionId": "txn_123",
+    "transactionHid": "txn_hid_123",
+    "status": "completed",
+    "paymentMethod": "card",
+    "paymentProvider": "oenpay"
+  }
+}
+```
+
+Webhook handler 會先解析 envelope 並保留 `type` 與巢狀 `data`，其中 Hosted Checkout session id 以 `data.id` 為主，並保留 `data.sessionId` 作為相容性 fallback。收到 `checkout_session.completed`、`checkout_session.failed`、`checkout_session.expired`、`checkout_session.cancelled` 時，handler 會優先用 `GET /hosted-checkout/v1/sessions/{sessionId}` 驗證，並透過單一路徑正規化 verified session status（優先採用 top-level `status`，再退回巢狀 `transaction.status` 以維持向前相容）判斷訂單結果；只有在 webhook 沒有 session id 時才退回 `transactionHid` 驗證。stale-attempt 保護以 `_oen_session_id` 為主要綁定，當 session id 命中目前 attempt 時，不會因為舊的 `_oen_transaction_hid` 不同而誤判為 stale；在成功驗證完成後，外掛也會把 authoritative `transactionHid` 與 `transactionId` 回寫到訂單 meta，維持 email 與付款資訊顯示。此外，`refund.succeeded` 事件會被對應成 WooCommerce 退款：以 `data.sessionId` 比對訂單上儲存的 `_oen_session_id` 找到訂單，依 `data.amount` 建立退款，並記錄 OEN refund id，使成對的 `refund.created`/`refund.succeeded` 與重送都不會重複退款（`refund.created` 僅確認不動作）。由於退款事件沒有結帳事件那種伺服器端再驗證的後備機制，其真偽完全仰賴簽章，因此**未設定 Webhook Secret 時會直接拒絕退款事件**。目前僅同步退款（信用卡、Line Pay）會被對應；CVS 退款與未來的非同步（`refunding`）退款尚未由 Hosted Checkout webhook 合約提供。
 
 ## 授權條款
 
@@ -71,6 +121,7 @@ Integrates OEN Payment (應援科技) with WooCommerce, enabling merchants to ac
 - Sandbox/production environment switching
 - Traditional Chinese (zh_TW) and English language support
 - WooCommerce HPOS compatible
+- Verifies and reuses an in-flight Hosted Checkout session inside an order-level advisory lock instead of blindly creating duplicates
 
 ## Requirements
 
@@ -82,7 +133,7 @@ Integrates OEN Payment (應援科技) with WooCommerce, enabling merchants to ac
 
 1. Upload the `woocommerce-oen-payment` folder to `/wp-content/plugins/`
 2. Activate the plugin through the Plugins menu in WordPress
-3. Go to **WooCommerce > Settings > OEN** to configure your MerchantID and API Token
+3. Go to **WooCommerce > Settings > OEN** to configure your MerchantID, Secret Key, and Webhook Secret
 4. Go to **WooCommerce > Settings > Payments** to enable OEN Credit and/or OEN Cvs
 5. Configure your webhook URL in OEN CRM backend: `https://yoursite.com/?wc-api=oen_payment`
 
@@ -98,13 +149,61 @@ Integrates OEN Payment (應援科技) with WooCommerce, enabling merchants to ac
 | Show payment info in email | Add transaction ID, CVS payment code to order emails |
 | OEN sandbox | Use OEN testing environment API |
 | MerchantID | OEN store code |
-| API Token | OEN API Token (Bearer authentication) |
+| Secret Key | OEN API Secret Key used as the Bearer token for Hosted Checkout Session API calls |
+| Webhook Secret | HMAC secret used to verify the `OenPay-Signature` header; leave empty to skip signature verification |
 
 ### Payment Flow
 
 **Credit Card:** Customer selects "OEN Credit" → Redirected to OEN checkout → Completes payment → Returns to thank-you page → Webhook updates order status
 
 **CVS:** Customer selects "OEN Cvs" → Redirected to OEN checkout for payment code → Pays at convenience store → Webhook updates order status
+
+### Hosted Checkout Session API
+
+The plugin uses the OEN Hosted Checkout Session API:
+
+- `POST /hosted-checkout/v1/sessions` to create a checkout session and receive a non-empty `id` plus `checkoutUrl`
+- `GET /hosted-checkout/v1/sessions/{sessionId}` to fetch a single session
+
+Send `Authorization: Bearer <Secret Key>` when calling these endpoints.
+
+The plugin does not inject `merchantId` for the v1 secret-key contract. It sends `successUrl`, `failureUrl`, and `cancelUrl` (back to cart), and treats the returned session `id` as required. If the Hosted Checkout create response omits or empties that field, checkout fails instead of saving an empty `_oen_session_id` and weakening stale-attempt protection. When `process_payment()` runs again for the same unpaid order, the plugin first checks the stored `_oen_session_id` inside an order-level advisory lock with `GET /hosted-checkout/v1/sessions/{sessionId}` and reuses the saved `_oen_checkout_url` while that session remains in flight. If verification of that stored session fails, checkout now fails closed instead of silently creating a new live session. A new attempt is created only after the earlier session is already in a terminal, non-reusable state such as `completed`, `charged`, `failed`, `expired`, or `cancelled`.
+
+### Webhook Signature and Event Envelope
+
+Hosted checkout webhooks send an `OenPay-Signature` header in this format:
+
+```text
+OenPay-Signature: t=1712345678,v1=<hex_hmac_sha256>
+```
+
+The signed payload is:
+
+```text
+{timestamp}.{raw_body}
+```
+
+Where `timestamp` is the `t` value from the header. The HMAC algorithm is `sha256` and the secret is the configured **Webhook Secret**. The plugin also enforces a default freshness tolerance of 300 seconds for `t`.
+
+Webhook bodies arrive as an event envelope, with the business payload nested under `data`, for example:
+
+```json
+{
+  "id": "evt_test_123",
+  "type": "checkout_session.completed",
+  "data": {
+    "id": "sess_123",
+    "orderId": "wc_1001",
+    "transactionId": "txn_123",
+    "transactionHid": "txn_hid_123",
+    "status": "completed",
+    "paymentMethod": "card",
+    "paymentProvider": "oenpay"
+  }
+}
+```
+
+The webhook handler preserves the event `type` plus nested `data`, reads the Hosted Checkout session id from `data.id` with `data.sessionId` as a backward-compatible fallback, expects `checkout_session.completed`, `checkout_session.failed`, `checkout_session.expired`, or `checkout_session.cancelled`, prefers `GET /hosted-checkout/v1/sessions/{sessionId}` verification whenever a session id is present, and normalizes verified session status through one helper path that prefers the top-level `status` and falls back to nested `transaction.status` for forward compatibility. `transactionHid` verification remains a fallback only when the webhook does not contain a session id. Stale-attempt protection is primarily bound to `_oen_session_id`, so a matching current session id is accepted even if an older stored `_oen_transaction_hid` differs. After a verified success, the plugin writes the authoritative `transactionHid` and `transactionId` back to order meta so payment info remains available even when session creation was session-only. A missing or mismatched incoming session id is still treated as stale when `_oen_session_id` is stored on the order. If the order has no stored `_oen_session_id`, a session-only webhook without an authoritative `transactionHid` match is treated as unverifiable stale risk and ignored.
 
 ## License
 

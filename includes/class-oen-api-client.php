@@ -4,41 +4,56 @@ defined( 'ABSPATH' ) || exit;
 
 class OEN_API_Client {
 
-    private const PRODUCTION_API_URL = 'https://payment-api.oen.tw';
-    private const SANDBOX_API_URL    = 'https://payment-api.testing.oen.tw';
+    // The Hosted Checkout endpoints are served by PublicLambdaProxy, mounted at
+    // the `/api` stage path on the api.oen.tw HTTP API gateway. The `/api` prefix
+    // is required — without it requests 404 at the gateway.
+    private const PRODUCTION_API_URL = 'https://api.oen.tw/api';
+    private const SANDBOX_API_URL    = 'https://api.testing.oen.tw/api';
 
     private const PRODUCTION_CHECKOUT_HOST = 'oen.tw';
     private const SANDBOX_CHECKOUT_HOST    = 'testing.oen.tw';
 
     private string $merchant_id;
-    private string $api_token;
+    private string $secret_key;
     private bool   $sandbox;
     private string $base_url;
 
-    public function __construct( string $merchant_id, string $api_token, bool $sandbox = false ) {
+    public function __construct( string $merchant_id, string $secret_key, bool $sandbox = false ) {
         $this->merchant_id = $merchant_id;
-        $this->api_token   = $api_token;
+        $this->secret_key  = $secret_key;
         $this->sandbox     = $sandbox;
-        $this->base_url    = $sandbox ? self::SANDBOX_API_URL : self::PRODUCTION_API_URL;
+        $this->base_url    = $this->resolve_base_url( $sandbox );
     }
 
-    public function create_checkout( array $params ): array {
-        $params['merchantId'] = $this->merchant_id;
+    public function create_session( array $params ): array {
         if ( ! isset( $params['currency'] ) ) {
             $params['currency'] = 'TWD';
         }
+        if ( empty( $params['orderId'] ) ) {
+            $params['orderId'] = uniqid( 'wc_', true );
+        }
+
         $response = wp_remote_post(
-            $this->base_url . '/checkout',
+            $this->base_url . '/hosted-checkout/v1/sessions',
             [
                 'headers' => [
-                    'Authorization' => 'Bearer ' . $this->api_token,
-                    'Content-Type'  => 'application/json',
+                    'Authorization'   => 'Bearer ' . $this->secret_key,
+                    'Content-Type'    => 'application/json',
+                    'Idempotency-Key' => $this->generate_idempotency_key(),
                 ],
                 'body'    => wp_json_encode( $params ),
                 'timeout' => 30,
             ]
         );
-        return $this->parse_response( $response );
+        $data = $this->parse_response( $response );
+
+        if ( empty( $data['id'] ) || ! is_string( $data['id'] ) ) {
+            throw new \RuntimeException(
+                __( 'OEN Payment API did not return a session id.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        return $data;
     }
 
     public function get_transaction( string $transaction_id ): array {
@@ -46,11 +61,124 @@ class OEN_API_Client {
             $this->base_url . '/transactions/' . urlencode( $transaction_id ),
             [
                 'headers' => [
-                    'Authorization' => 'Bearer ' . $this->api_token,
+                    'Authorization' => 'Bearer ' . $this->secret_key,
                 ],
                 'timeout' => 15,
             ]
         );
+        return $this->parse_response( $response );
+    }
+
+    public function get_session( string $session_id ): array {
+        $response = wp_remote_get(
+            $this->base_url . '/hosted-checkout/v1/sessions/' . urlencode( $session_id ),
+            [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $this->secret_key,
+                ],
+                'timeout' => 15,
+            ]
+        );
+
+        return $this->parse_response( $response );
+    }
+
+    /**
+     * Register a Hosted Checkout webhook endpoint. The create response is the only
+     * place the signing secret is returned, so callers must persist it.
+     *
+     * @param string   $url    The merchant webhook URL to register.
+     * @param string[] $events The event types to subscribe to.
+     * @return array<string, mixed> The raw webhook resource, including `secret`.
+     */
+    public function create_webhook( string $url, array $events ): array {
+        $response = wp_remote_post(
+            $this->base_url . '/hosted-checkout/v1/webhooks',
+            [
+                'headers' => [
+                    'Authorization'   => 'Bearer ' . $this->secret_key,
+                    'Content-Type'    => 'application/json',
+                    'Idempotency-Key' => $this->generate_idempotency_key(),
+                ],
+                'body'    => wp_json_encode( [
+                    'url'           => $url,
+                    'enabledEvents' => array_values( $events ),
+                ] ),
+                'timeout' => 30,
+            ]
+        );
+
+        return $this->parse_response( $response );
+    }
+
+    /**
+     * List the merchant's Hosted Checkout webhooks (without secrets).
+     *
+     * @return array<int, array<string, mixed>> The webhook resources.
+     */
+    public function list_webhooks(): array {
+        $response = wp_remote_get(
+            $this->base_url . '/hosted-checkout/v1/webhooks',
+            [
+                'headers' => [ 'Authorization' => 'Bearer ' . $this->secret_key ],
+                'timeout' => 15,
+            ]
+        );
+
+        $body  = $this->parse_response( $response );
+        $items = $body['items'] ?? null;
+
+        return is_array( $items ) ? $items : [];
+    }
+
+    /**
+     * Update an existing webhook's URL and subscribed events.
+     *
+     * @param string   $webhook_id The webhook id.
+     * @param string   $url        The webhook URL.
+     * @param string[] $events     The event types to subscribe to.
+     * @return array<string, mixed> The updated webhook resource (no secret).
+     */
+    public function update_webhook( string $webhook_id, string $url, array $events ): array {
+        $response = wp_remote_request(
+            $this->base_url . '/hosted-checkout/v1/webhooks/' . urlencode( $webhook_id ),
+            [
+                'method'  => 'PUT',
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $this->secret_key,
+                    'Content-Type'  => 'application/json',
+                ],
+                'body'    => wp_json_encode( [
+                    'url'           => $url,
+                    'enabledEvents' => array_values( $events ),
+                ] ),
+                'timeout' => 30,
+            ]
+        );
+
+        return $this->parse_response( $response );
+    }
+
+    /**
+     * Rotate an existing webhook's signing secret. The rotate response is the only
+     * other place (besides create) the secret is returned, so callers must persist it.
+     *
+     * @param string $webhook_id The webhook id.
+     * @return array<string, mixed> The webhook resource, including the new `secret`.
+     */
+    public function rotate_webhook_secret( string $webhook_id ): array {
+        $response = wp_remote_post(
+            $this->base_url . '/hosted-checkout/v1/webhooks/' . urlencode( $webhook_id ) . '/rotate-secret',
+            [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $this->secret_key,
+                    'Content-Type'  => 'application/json',
+                ],
+                'body'    => wp_json_encode( [] ),
+                'timeout' => 30,
+            ]
+        );
+
         return $this->parse_response( $response );
     }
 
@@ -61,14 +189,35 @@ class OEN_API_Client {
 
     public static function from_settings(): self {
         $merchant_id = get_option( 'oen_merchant_id', '' );
-        $api_token   = get_option( 'oen_api_token', '' );
+        $secret_key  = get_option( 'oen_api_token', '' );
         $sandbox     = 'yes' === get_option( 'oen_sandbox', 'no' );
-        if ( empty( $merchant_id ) || empty( $api_token ) ) {
+        if ( empty( $merchant_id ) || empty( $secret_key ) ) {
             throw new \RuntimeException(
-                __( 'OEN Payment is not configured. Please set MerchantID and API Token.', 'woocommerce-oen-payment' )
+                __( 'OEN Payment is not configured. Please set MerchantID and Secret Key.', 'woocommerce-oen-payment' )
             );
         }
-        return new self( $merchant_id, $api_token, $sandbox );
+        return new self( $merchant_id, $secret_key, $sandbox );
+    }
+
+    private function resolve_base_url( bool $sandbox ): string {
+        $override = getenv( 'OEN_API_BASE_URL' );
+        if ( is_string( $override ) && '' !== trim( $override ) ) {
+            return rtrim( trim( $override ), '/' );
+        }
+
+        return $sandbox ? self::SANDBOX_API_URL : self::PRODUCTION_API_URL;
+    }
+
+    private function generate_idempotency_key(): string {
+        if ( function_exists( 'wp_generate_uuid4' ) ) {
+            return 'session-attempt-' . wp_generate_uuid4();
+        }
+
+        try {
+            return 'session-attempt-' . bin2hex( random_bytes( 16 ) );
+        } catch ( \Exception $exception ) {
+            return uniqid( 'session-attempt-', true );
+        }
     }
 
     private function parse_response( array|\WP_Error $response ): array {
@@ -82,26 +231,33 @@ class OEN_API_Client {
         }
         $status_code = wp_remote_retrieve_response_code( $response );
         $body        = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        // The Hosted Checkout API returns raw resource objects on success and a
+        // Stripe-style `{ error: { code, message }, requestId }` envelope on
+        // failure. There is no `code: 'S0000'` / `data` wrapper.
         if ( $status_code < 200 || $status_code >= 300 ) {
+            $error   = ( is_array( $body ) && is_array( $body['error'] ?? null ) ) ? $body['error'] : [];
+            $code    = (string) ( $error['code'] ?? ( is_array( $body ) ? ( $body['code'] ?? 'UNKNOWN' ) : 'UNKNOWN' ) );
+            $message = (string) ( $error['message'] ?? ( is_array( $body ) ? ( $body['message'] ?? '' ) : '' ) );
+            if ( '' === $message ) {
+                $message = 'Unknown error';
+            }
             throw new \RuntimeException(
                 sprintf(
-                    __( 'OEN Payment API returned HTTP %1$d: %2$s', 'woocommerce-oen-payment' ),
-                    $status_code,
-                    $body['message'] ?? 'Unknown error'
-                )
-            );
-        }
-        if ( ! is_array( $body ) || ( $body['code'] ?? '' ) !== 'S0000' ) {
-            $code    = $body['code'] ?? 'UNKNOWN';
-            $message = $body['message'] ?? 'Unknown error';
-            throw new \RuntimeException(
-                sprintf(
-                    __( 'OEN Payment API error [%1$s]: %2$s', 'woocommerce-oen-payment' ),
+                    __( 'OEN Payment API error [%1$s] (HTTP %2$d): %3$s', 'woocommerce-oen-payment' ),
                     $code,
+                    $status_code,
                     $message
                 )
             );
         }
-        return $body['data'] ?? [];
+
+        if ( ! is_array( $body ) ) {
+            throw new \RuntimeException(
+                __( 'OEN Payment API returned an unexpected response.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        return $body;
     }
 }
