@@ -720,7 +720,44 @@ function test_process_payment_refreshes_terminal_session_and_clears_stale_transa
     );
 }
 
+function test_create_webhook_uses_hosted_checkout_contract(): void {
+    test_reset_http_stubs();
+
+    $client = new OEN_API_Client( 'merchant-123', 'sk_test_secret' );
+
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'            => 'whk_123',
+                'secret'        => 'whsec_abc',
+                'enabledEvents' => [ 'refund.succeeded' ],
+        ] ),
+    ];
+
+    $result = $client->create_webhook( 'https://store.example/?wc-api=oen_payment', [ 'refund.succeeded' ] );
+
+    test_assert(
+        ( $GLOBALS['test_http_post_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/api/hosted-checkout/v1/webhooks',
+        'create_webhook should POST to /hosted-checkout/v1/webhooks.'
+    );
+    test_assert(
+        ( $GLOBALS['test_http_post_calls'][0]['args']['headers']['Authorization'] ?? null ) === 'Bearer sk_test_secret',
+        'create_webhook should authorize with the secret key.'
+    );
+    $body = json_decode( (string) ( $GLOBALS['test_http_post_calls'][0]['args']['body'] ?? '' ), true );
+    test_assert(
+        ( $body['url'] ?? null ) === 'https://store.example/?wc-api=oen_payment'
+            && ( $body['enabledEvents'] ?? null ) === [ 'refund.succeeded' ],
+        'create_webhook should send the url and enabledEvents.'
+    );
+    test_assert(
+        ( $result['id'] ?? null ) === 'whk_123' && ( $result['secret'] ?? null ) === 'whsec_abc',
+        'create_webhook should return the raw webhook resource including the secret.'
+    );
+}
+
 test_create_session_uses_hosted_checkout_contract();
+test_create_webhook_uses_hosted_checkout_contract();
 test_create_session_rejects_missing_session_id();
 test_create_session_uses_unique_idempotency_key_per_attempt();
 test_get_session_uses_hosted_checkout_contract();

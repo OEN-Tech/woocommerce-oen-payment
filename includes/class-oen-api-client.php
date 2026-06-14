@@ -83,6 +83,34 @@ class OEN_API_Client {
         return $this->parse_response( $response );
     }
 
+    /**
+     * Register a Hosted Checkout webhook endpoint. The create response is the only
+     * place the signing secret is returned, so callers must persist it.
+     *
+     * @param string   $url    The merchant webhook URL to register.
+     * @param string[] $events The event types to subscribe to.
+     * @return array<string, mixed> The raw webhook resource, including `secret`.
+     */
+    public function create_webhook( string $url, array $events ): array {
+        $response = wp_remote_post(
+            $this->base_url . '/hosted-checkout/v1/webhooks',
+            [
+                'headers' => [
+                    'Authorization'   => 'Bearer ' . $this->secret_key,
+                    'Content-Type'    => 'application/json',
+                    'Idempotency-Key' => $this->generate_idempotency_key(),
+                ],
+                'body'    => wp_json_encode( [
+                    'url'           => $url,
+                    'enabledEvents' => array_values( $events ),
+                ] ),
+                'timeout' => 30,
+            ]
+        );
+
+        return $this->parse_response( $response );
+    }
+
     public function get_checkout_url( string $checkout_id ): string {
         $host = $this->sandbox ? self::SANDBOX_CHECKOUT_HOST : self::PRODUCTION_CHECKOUT_HOST;
         return sprintf( 'https://%s.%s/checkout/%s', $this->merchant_id, $host, $checkout_id );
