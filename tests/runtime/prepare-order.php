@@ -33,6 +33,11 @@ $fixtures = [
         'session_id'   => 'sess_runtime_cvs_pending',
         'total'        => 1234,
     ],
+    'cvs-completed' => [
+        'oen_order_id' => 'wc-runtime-cvs-completed',
+        'session_id'   => 'sess_runtime_cvs_completed',
+        'total'        => 1234,
+    ],
 ];
 
 if ( ! isset( $fixtures[ $case ] ) ) {
