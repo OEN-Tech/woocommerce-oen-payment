@@ -53,6 +53,11 @@ class OEN_Blocks_Payment_Method extends AbstractPaymentMethodType {
         return [ $handle ];
     }
 
+    public function get_payment_method_script_handles_for_admin(): array {
+        // Reuse the same registration so the method previews in the block editor.
+        return $this->get_payment_method_script_handles();
+    }
+
     public function get_payment_method_data(): array {
         return [
             'title'       => $this->get_setting( 'title' ),
