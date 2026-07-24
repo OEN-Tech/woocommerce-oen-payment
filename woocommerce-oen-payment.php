@@ -43,6 +43,11 @@ add_action( 'before_woocommerce_init', function (): void {
             __FILE__,
             true
         );
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility(
+            'cart_checkout_blocks',
+            __FILE__,
+            true
+        );
     }
 } );
 
@@ -89,4 +94,20 @@ add_action( 'plugins_loaded', function (): void {
     new OEN_Webhook_Handler();
     new OEN_Email_Handler();
     new OEN_Error_Handler();
+} );
+
+add_action( 'woocommerce_blocks_loaded', function (): void {
+    if ( ! class_exists( '\Automattic\WooCommerce\Blocks\Payments\Integrations\AbstractPaymentMethodType' ) ) {
+        return;
+    }
+
+    require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-blocks-payment-method.php';
+
+    add_action(
+        'woocommerce_blocks_payment_method_type_registration',
+        function ( \Automattic\WooCommerce\Blocks\Payments\PaymentMethodRegistry $registry ): void {
+            $registry->register( new OEN_Blocks_Payment_Method( 'oen_credit', WC_Gateway_OEN_Credit::class ) );
+            $registry->register( new OEN_Blocks_Payment_Method( 'oen_cvs', WC_Gateway_OEN_CVS::class ) );
+        }
+    );
 } );
