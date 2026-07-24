@@ -22,3 +22,6 @@ composer.lock
 # Environment
 .env
 .env.*
+
+# test evidence (screenshots/recordings/logs) — not committed
+tests/evidence/

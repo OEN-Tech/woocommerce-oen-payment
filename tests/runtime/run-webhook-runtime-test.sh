@@ -382,8 +382,43 @@ run_cvs_pending_case() {
   rm -f "$response_file" "$order_file"
 }
 
+run_cvs_completed_case() {
+  local prep_json
+  local response_file
+  local order_file
+  local status_code
+  local payload
+  local signature
+
+  prep_json="$(prepare_order 'cvs-completed')"
+  payload="$(php -r '
+    $data = json_decode($argv[1], true);
+    echo json_encode([
+      "type" => "checkout_session.completed",
+      "data" => [
+        "id" => $data["session_id"],
+        "orderId" => $data["oen_order_id"],
+        "status" => "completed",
+      ],
+    ]);
+  ' "$prep_json")"
+  signature="$(build_signature "$payload" "$WEBHOOK_SECRET")"
+  response_file="$(mktemp)"
+  order_file="$(mktemp)"
+
+  status_code="$(post_webhook "$payload" "$signature" "$response_file")"
+  inspect_order 'cvs-completed' >"$order_file"
+
+  assert_equals "200" "$status_code" "cvs completed webhook should return 200"
+  assert_equals "true" "$(json_field "$order_file" "is_paid")" "cvs completed webhook should mark order paid"
+  assert_equals "CVS1234567890" "$(json_field "$order_file" "oen_cvs_code")" "cvs completed webhook should persist the CVS code from the top-level paymentInfo"
+
+  rm -f "$response_file" "$order_file"
+}
+
 bootstrap_wordpress
 run_cvs_pending_case
+run_cvs_completed_case
 run_signed_ambiguous_case
 run_signed_success_case
 run_signed_stale_case
