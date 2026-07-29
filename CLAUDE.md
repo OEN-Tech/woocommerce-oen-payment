@@ -26,5 +26,15 @@ listed above.
 
 ## Scripts
 
-Helper/E2E scripts must read environment endpoints, keys, and credentials from **environment
-variables** — never hard-code internal defaults.
+Helper scripts committed here must read endpoints, keys, and credentials from **environment
+variables** — never hard-code defaults. A script whose defaults only make sense inside one
+organisation's network does not belong in this repository at all; keep that tooling internal.
+
+## Test layers
+
+- `tests/run-unit.sh` — contract/unit harnesses. Self-contained: no network, no Docker.
+- `tests/runtime/` — dockerised WordPress runtime harness driven by a local API stub
+  (`api-stub-router.php`) that mirrors the real response shapes. Self-contained.
+
+Both layers must stay runnable by anyone who clones this repository. Harnesses that require
+private endpoints, credentials, or a specific operator's machine are kept outside this repo.

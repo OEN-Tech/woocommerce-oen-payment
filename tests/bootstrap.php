@@ -6,6 +6,17 @@ if ( ! defined( 'ABSPATH' ) ) {
     define( 'ABSPATH', dirname( __DIR__ ) . '/' );
 }
 
+/*
+ * Keep the contract harnesses hermetic.
+ *
+ * OEN_API_BASE_URL is a legitimate runtime override (see the api-client), so a shell or
+ * container that happens to export it would silently change every URL the tests assert on
+ * and produce failures that look like real regressions. Clear anything inherited here; the
+ * one test that exercises the override sets it explicitly with putenv() and restores it.
+ */
+putenv( 'OEN_API_BASE_URL' );
+unset( $_ENV['OEN_API_BASE_URL'], $_SERVER['OEN_API_BASE_URL'] );
+
 class TestWpError {
     private string $code;
     private string $message;
