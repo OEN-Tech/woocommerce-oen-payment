@@ -313,6 +313,29 @@ function test_handler_requires_amount_for_verified_session_binding(): void {
     );
 }
 
+function test_parser_accepts_any_valid_v1_during_secret_rotation(): void {
+    // During a secret rotation the backend signs with both the current and the
+    // previous secret, sending multiple v1= values. The parser must accept the
+    // event if ANY v1 matches — here an unrelated v1 precedes the valid one.
+    $secret    = 'whsec_current_secret';
+    $timestamp = (string) time();
+    $raw_body  = wp_json_encode( [
+        'id'   => 'evt_rotation',
+        'type' => 'checkout_session.completed',
+        'data' => [ 'id' => 'sess_rot', 'orderId' => 'wc_rot' ],
+    ] );
+
+    $valid  = hash_hmac( 'sha256', $timestamp . '.' . $raw_body, $secret );
+    $header = 't=' . $timestamp . ',v1=00000000deadbeef,v1=' . $valid;
+
+    $payload = ( new OEN_Webhook_Parser( $secret ) )->parse( $raw_body, $header );
+
+    test_assert(
+        ( $payload['type'] ?? null ) === 'checkout_session.completed',
+        'Parser should accept the event when any v1 signature matches (secret-rotation grace).'
+    );
+}
+
 test_parser_verifies_signature_and_returns_event_type_and_nested_event_data();
 test_parser_rejects_invalid_signature();
 test_parser_rejects_stale_signature_timestamp();
@@ -323,5 +346,6 @@ test_handler_rejects_session_only_attempt_without_stored_session_or_matching_tra
 test_handler_maps_hosted_checkout_event_names_and_statuses();
 test_handler_accepts_top_level_completed_session_status();
 test_handler_requires_amount_for_verified_session_binding();
+test_parser_accepts_any_valid_v1_during_secret_rotation();
 
 echo "Webhook parser smoke harness passed.\n";
