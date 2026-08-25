@@ -112,6 +112,42 @@ class OEN_API_Client {
     }
 
     /**
+     * Create a refund against a Hosted Checkout session.
+     *
+     * The refund API is addressed by SESSION id, not by transaction hid — the
+     * session id is stored on the order as _oen_session_id.
+     *
+     * @param string $session_id Hosted Checkout session id (cs_...).
+     * @param int    $amount     Refund amount in the order currency's smallest
+     *                           billing unit used by the API (TWD dollars).
+     * @param string $reason     Optional merchant-facing reason.
+     * @return array<string, mixed> The refund resource: id, sessionId, amount, status.
+     * @throws \RuntimeException When the API rejects the refund.
+     */
+    public function create_refund( string $session_id, int $amount, string $reason = '' ): array {
+        $body = [ 'amount' => $amount ];
+
+        if ( '' !== $reason ) {
+            $body['reason'] = $reason;
+        }
+
+        $response = wp_remote_post(
+            $this->base_url . '/hosted-checkout/v1/sessions/' . rawurlencode( $session_id ) . '/refunds',
+            [
+                'headers' => [
+                    'Authorization'   => 'Bearer ' . $this->secret_key,
+                    'Content-Type'    => 'application/json',
+                    'Idempotency-Key' => $this->generate_idempotency_key(),
+                ],
+                'body'    => wp_json_encode( $body ),
+                'timeout' => 30,
+            ]
+        );
+
+        return $this->parse_response( $response );
+    }
+
+    /**
      * List the merchant's Hosted Checkout webhooks (without secrets).
      *
      * @return array<int, array<string, mixed>> The webhook resources.

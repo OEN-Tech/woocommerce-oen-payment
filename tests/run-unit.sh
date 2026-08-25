@@ -12,7 +12,9 @@ for t in \
     WebhookHandlerIntegrationTest \
     WebhookRegistrationTest \
     CheckoutParamsTest \
-    BlocksPaymentMethodTest
+    BlocksPaymentMethodTest \
+    SettingsPageRegistrationTest \
+    RefundTest
 do
     printf '\n===== %s =====\n' "$t"
     if php "$DIR/$t.php"; then
