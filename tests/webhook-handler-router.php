@@ -113,6 +113,10 @@ final class WC_Order {
         $this->meta[ $key ] = $value;
     }
 
+    public function delete_meta_data( string $key ): void {
+        unset( $this->meta[ $key ] );
+    }
+
     public function save(): void {}
 
     public function is_paid(): bool {
@@ -266,6 +270,7 @@ if ( ! class_exists( 'OEN_API_Client', false ) ) {
     }
 }
 
+require_once __DIR__ . '/../includes/class-oen-refund-registry.php';
 require_once __DIR__ . '/../includes/class-oen-webhook-handler.php';
 
 $handler = new OEN_Webhook_Handler();

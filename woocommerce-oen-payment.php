@@ -70,18 +70,29 @@ add_action( 'plugins_loaded', function (): void {
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen-credit.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen-cvs.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen-atm.php';
+    require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-refund-registry.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-webhook-handler.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-email-handler.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-error-handler.php';
 
-    if ( is_admin() && class_exists( 'WC_Settings_Page' ) ) {
+    // Load OEN_Settings lazily, inside the filter callback.
+    //
+    // Its parent, WC_Settings_Page, lives in woocommerce/includes/admin/settings/ and
+    // WC_Autoloader has no path branch for the wc_settings_page prefix, so the class is
+    // NOT loadable at plugins_loaded: requiring the file here fatals with
+    // "Class WC_Settings_Page not found", and guarding on class_exists() instead makes
+    // the condition permanently false, silently dropping the settings page.
+    //
+    // woocommerce_get_settings_pages is only applied inside
+    // WC_Admin_Settings::get_settings_pages(), which include_once's
+    // class-wc-settings-page.php before applying it — so the parent is guaranteed to
+    // exist by the time this callback runs. The callback never fires outside the
+    // settings screen, so no is_admin() check is needed either.
+    add_filter( 'woocommerce_get_settings_pages', function ( array $settings ): array {
         require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-settings.php';
-
-        add_filter( 'woocommerce_get_settings_pages', function ( array $settings ): array {
-            $settings[] = new OEN_Settings();
-            return $settings;
-        } );
-    }
+        $settings[] = new OEN_Settings();
+        return $settings;
+    } );
 
     add_filter( 'woocommerce_payment_gateways', function ( array $gateways ): array {
         if ( 'yes' === get_option( 'oen_enabled', 'no' ) ) {

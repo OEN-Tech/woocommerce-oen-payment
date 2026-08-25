@@ -223,9 +223,21 @@ class OEN_Webhook_Handler {
             if ( ! $order ) {
                 $response      = [ 'status' => 'error', 'message' => 'Order not found' ];
                 $response_code = 404;
-            } elseif ( $this->is_refund_processed( $order, $refund_id ) ) {
+            } elseif ( OEN_Refund_Registry::is_processed( $order, $refund_id ) ) {
                 $this->log( 'Refund ' . $refund_id . ' already processed for order #' . $order_id );
                 $response = [ 'status' => 'ok', 'message' => 'Refund already processed' ];
+            } elseif ( OEN_Refund_Registry::is_in_progress( $order ) ) {
+                // The merchant started this refund from the order screen. The backend
+                // emits refund.succeeded while it is still answering that request, so
+                // this event can arrive before process_refund() learns the refund id.
+                // WooCommerce creates the WC refund on that path — mirroring it here
+                // too would double total_refunded. Claim the id so a webhook retry
+                // cannot mirror it later either.
+                OEN_Refund_Registry::mark_processed( $order, $refund_id );
+                $this->log(
+                    'Refund ' . $refund_id . ' left to the admin refund path for order #' . $order_id
+                );
+                $response = [ 'status' => 'ok', 'message' => 'Refund handled by the admin path' ];
             } else {
                 $amount = intval( $event_data['amount'] ?? 0 );
 
@@ -234,7 +246,7 @@ class OEN_Webhook_Handler {
                     $response      = [ 'status' => 'error', 'message' => 'Invalid refund amount' ];
                     $response_code = 400;
                 } elseif ( $this->create_wc_refund( $order, $amount, $reason, $refund_id ) ) {
-                    $this->mark_refund_processed( $order, $refund_id );
+                    OEN_Refund_Registry::mark_processed( $order, $refund_id );
                     $response = [ 'status' => 'ok' ];
                 } else {
                     $response      = [ 'status' => 'error', 'message' => 'Refund creation failed' ];
@@ -288,35 +300,6 @@ class OEN_Webhook_Handler {
         );
 
         return true;
-    }
-
-    /**
-     * Whether an OEN refund id has already been mirrored into WooCommerce.
-     *
-     * @param \WC_Order $order     The WooCommerce order.
-     * @param string    $refund_id OEN refund id.
-     */
-    private function is_refund_processed( \WC_Order $order, string $refund_id ): bool {
-        $processed = $order->get_meta( '_oen_processed_refund_ids' );
-        $processed = is_array( $processed ) ? $processed : [];
-
-        return in_array( $refund_id, $processed, true );
-    }
-
-    /**
-     * Record that an OEN refund id has been mirrored, for idempotency on retries
-     * and on the paired refund.created/refund.succeeded events.
-     *
-     * @param \WC_Order $order     The WooCommerce order.
-     * @param string    $refund_id OEN refund id.
-     */
-    private function mark_refund_processed( \WC_Order $order, string $refund_id ): void {
-        $processed   = $order->get_meta( '_oen_processed_refund_ids' );
-        $processed   = is_array( $processed ) ? $processed : [];
-        $processed[] = $refund_id;
-
-        $order->update_meta_data( '_oen_processed_refund_ids', array_values( array_unique( $processed ) ) );
-        $order->save();
     }
 
     /**

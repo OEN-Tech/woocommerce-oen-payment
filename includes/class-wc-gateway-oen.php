@@ -26,6 +26,14 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
         $this->has_fields = false;
         $this->supports   = [ 'products' ];
 
+        // Only card payments can be refunded through the Hosted Checkout refund API.
+        // CVS/ATM refunds are asynchronous and the backend does not support them, so
+        // those gateways must not advertise 'refunds' — WooCommerce would render a
+        // refund button that can only fail.
+        if ( 'card' === $this->payment_method_type ) {
+            $this->supports[] = 'refunds';
+        }
+
         $this->init_form_fields();
         $this->init_settings();
 
@@ -200,6 +208,115 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
         } finally {
             $this->release_order_lock( $order_id );
         }
+    }
+
+    /**
+     * Refund a paid order through the Hosted Checkout refund API.
+     *
+     * WooCommerce creates the WC_Order_Refund itself, but only when this method
+     * returns true — so every failure path must return WP_Error. Returning true
+     * (or false) after a failed API call would leave the order marked refunded
+     * while the money was never returned.
+     *
+     * @param int        $order_id Order ID.
+     * @param float|null $amount   Refund amount.
+     * @param string     $reason   Refund reason.
+     * @return bool|\WP_Error True on success, WP_Error otherwise.
+     */
+    public function process_refund( $order_id, $amount = null, $reason = '' ) {
+        $order = wc_get_order( $order_id );
+
+        if ( ! $order instanceof \WC_Order ) {
+            return new \WP_Error(
+                'oen_refund_order_not_found',
+                __( 'Order not found.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        if ( 'card' !== $this->payment_method_type ) {
+            return new \WP_Error(
+                'oen_refund_unsupported_method',
+                __( 'OEN only supports refunds for credit card payments.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        $session_id = sanitize_text_field( (string) $order->get_meta( '_oen_session_id' ) );
+
+        if ( '' === $session_id ) {
+            return new \WP_Error(
+                'oen_refund_missing_session',
+                __( 'This order has no OEN session id, so it cannot be refunded through OEN.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        $refund_amount = (int) round( (float) $amount );
+
+        if ( $refund_amount <= 0 ) {
+            return new \WP_Error(
+                'oen_refund_invalid_amount',
+                __( 'Refund amount must be greater than zero.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        // Claim the refund before the request goes out. The backend emits
+        // refund.succeeded while it is still answering this call, so the webhook can
+        // land before the refund id is known here.
+        OEN_Refund_Registry::begin( $order );
+
+        try {
+            $refund = OEN_API_Client::from_settings()->create_refund(
+                $session_id,
+                $refund_amount,
+                (string) $reason
+            );
+        } catch ( \RuntimeException $e ) {
+            OEN_Refund_Registry::end( $order );
+
+            wc_get_logger()->error(
+                sprintf( 'OEN refund failed for order #%d: %s', $order->get_id(), $e->getMessage() ),
+                [ 'source' => 'oen-payment' ]
+            );
+
+            return new \WP_Error( 'oen_refund_failed', $e->getMessage() );
+        }
+
+        $status = sanitize_text_field( (string) ( $refund['status'] ?? '' ) );
+
+        if ( 'refunded' !== $status ) {
+            OEN_Refund_Registry::end( $order );
+
+            wc_get_logger()->error(
+                sprintf(
+                    'OEN refund for order #%1$d returned non-terminal status: %2$s',
+                    $order->get_id(),
+                    $status ?: 'unknown'
+                ),
+                [ 'source' => 'oen-payment' ]
+            );
+
+            return new \WP_Error(
+                'oen_refund_not_terminal',
+                __( 'OEN did not confirm the refund. The order was not marked as refunded.', 'woocommerce-oen-payment' )
+            );
+        }
+
+        $refund_id = sanitize_text_field( (string) ( $refund['id'] ?? '' ) );
+
+        // Claim the refund id before returning true. The refund.succeeded webhook
+        // arrives for this same refund and would otherwise mirror it a second time,
+        // doubling total_refunded on the order.
+        OEN_Refund_Registry::mark_processed( $order, $refund_id );
+
+        $order->add_order_note(
+            sprintf(
+                /* translators: 1: refund amount, 2: OEN refund id */
+                __( 'Refunded %1$d via OEN (refund %2$s).', 'woocommerce-oen-payment' ),
+                $refund_amount,
+                $refund_id ?: 'unknown'
+            )
+        );
+
+        return true;
     }
 
     /**
