@@ -735,16 +735,8 @@ class OEN_Webhook_Handler {
         }
 
         // Store CVS-specific metadata if present.
-        $payment_info = $transaction['paymentInfo'] ?? [];
-        if ( ! empty( $payment_info['cvsName'] ) ) {
-            $order->update_meta_data( '_oen_cvs_name', sanitize_text_field( $payment_info['cvsName'] ) );
-        }
-        if ( ! empty( $payment_info['code'] ) ) {
-            $order->update_meta_data( '_oen_cvs_code', sanitize_text_field( $payment_info['code'] ) );
-        }
-        if ( ! empty( $payment_info['expiredAt'] ) ) {
-            $order->update_meta_data( '_oen_cvs_expired_at', sanitize_text_field( $payment_info['expiredAt'] ) );
-        }
+        $payment_info = is_array( $transaction['paymentInfo'] ?? null ) ? $transaction['paymentInfo'] : [];
+        OEN_Payment_Info::apply( $order, $payment_info );
 
         $order->save();
 

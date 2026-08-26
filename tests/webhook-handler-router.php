@@ -270,6 +270,7 @@ if ( ! class_exists( 'OEN_API_Client', false ) ) {
     }
 }
 
+require_once __DIR__ . '/../includes/class-oen-payment-info.php';
 require_once __DIR__ . '/../includes/class-oen-refund-registry.php';
 require_once __DIR__ . '/../includes/class-oen-webhook-handler.php';
 

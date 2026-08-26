@@ -35,8 +35,12 @@ class OEN_Email_Handler {
             return;
         }
 
-        $transaction_hid = $order->get_meta( '_oen_transaction_hid' );
-        if ( empty( $transaction_hid ) ) {
+        // An unpaid CVS order has no transaction hid yet but may already have a
+        // payment code, which is exactly the case where the buyer needs this block.
+        $transaction_hid = (string) $order->get_meta( '_oen_transaction_hid' );
+        $payment_code    = (string) $order->get_meta( OEN_Payment_Info::META_CODE );
+
+        if ( '' === $transaction_hid && '' === $payment_code ) {
             return;
         }
 
@@ -54,11 +58,12 @@ class OEN_Email_Handler {
         echo '<h2>' . esc_html__( 'Payment Information', 'woocommerce-oen-payment' ) . '</h2>';
         echo '<table cellspacing="0" cellpadding="6" border="1" style="border-collapse:collapse; width:100%;">';
 
-        // Always show transaction HID.
-        echo '<tr>';
-        echo '<th style="text-align:left;">' . esc_html__( 'Transaction ID', 'woocommerce-oen-payment' ) . '</th>';
-        echo '<td>' . esc_html( $transaction_hid ) . '</td>';
-        echo '</tr>';
+        if ( '' !== $transaction_hid ) {
+            echo '<tr>';
+            echo '<th style="text-align:left;">' . esc_html__( 'Transaction ID', 'woocommerce-oen-payment' ) . '</th>';
+            echo '<td>' . esc_html( $transaction_hid ) . '</td>';
+            echo '</tr>';
+        }
 
         // Show payment time if paid.
         $paid_at = $order->get_meta( '_oen_paid_at' );
