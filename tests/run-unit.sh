@@ -14,7 +14,8 @@ for t in \
     CheckoutParamsTest \
     BlocksPaymentMethodTest \
     SettingsPageRegistrationTest \
-    RefundTest
+    RefundTest \
+    PaymentInfoTest
 do
     printf '\n===== %s =====\n' "$t"
     if php "$DIR/$t.php"; then

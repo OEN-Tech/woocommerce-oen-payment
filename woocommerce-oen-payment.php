@@ -70,6 +70,8 @@ add_action( 'plugins_loaded', function (): void {
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen-credit.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen-cvs.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-wc-gateway-oen-atm.php';
+    require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-payment-info.php';
+    require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-payment-info-sync.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-refund-registry.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-webhook-handler.php';
     require_once OEN_PAYMENT_PLUGIN_DIR . 'includes/class-oen-email-handler.php';
@@ -102,6 +104,8 @@ add_action( 'plugins_loaded', function (): void {
         return $gateways;
     } );
 
+    new OEN_Payment_Info();
+    new OEN_Payment_Info_Sync();
     new OEN_Webhook_Handler();
     new OEN_Email_Handler();
     new OEN_Error_Handler();
