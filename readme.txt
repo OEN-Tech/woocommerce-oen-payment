@@ -5,8 +5,8 @@ Requires at least: 6.1
 Tested up to: 6.8
 Requires PHP: 8.1
 WC requires at least: 8.2
-WC tested up to: 9.6
-Stable tag: 1.0.0
+WC tested up to: 11.0
+Stable tag: 1.0.3
 License: GPLv3
 License URI: https://www.gnu.org/licenses/gpl-3.0.html
 
@@ -73,6 +73,23 @@ Example webhook envelope:
 `{"id":"evt_test_123","type":"checkout_session.completed","data":{"id":"sess_123","orderId":"wc_1001","transactionId":"txn_123","transactionHid":"txn_hid_123","status":"completed","paymentMethod":"card","paymentProvider":"oenpay"}}`
 
 == Changelog ==
+
+= 1.0.3 =
+* Fix: the CVS payment code now reaches the order, and is shown to the buyer, the
+  merchant and in emails. It was previously stored only when a payment completed,
+  so an order still awaiting payment never had it, and no screen displayed it.
+
+= 1.0.2 =
+* Fix: the OEN settings tab now registers. It never appeared before, so a fresh
+  install had no way to enter a merchant id or secret key, and no OEN payment
+  method could be enabled at all.
+* Fix: refunding from the order screen now actually refunds. The gateway had no
+  refund implementation, so the only available button marked the order refunded
+  while the payment was never returned.
+
+= 1.0.1 =
+* WooCommerce Cart & Checkout Blocks support
+* Integration test suites (L1/L2/L3)
 
 = 1.0.0 =
 * Initial release

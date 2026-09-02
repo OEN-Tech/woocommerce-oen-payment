@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce OEN Payment Gateway
  * Plugin URI: https://oen.tw
  * Description: OEN 金流付款外掛 — 支援信用卡、超商繳費付款方式
- * Version: 1.0.0
+ * Version: 1.0.3
  * Author: OEN Technology (應援科技)
  * Author URI: https://oen.tw
  * License: GPL-3.0-or-later
@@ -13,12 +13,12 @@
  * Requires at least: 6.1
  * Requires PHP: 8.1
  * WC requires at least: 8.2
- * WC tested up to: 9.6
+ * WC tested up to: 11.0
  */
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'OEN_PAYMENT_VERSION', '1.0.0' );
+define( 'OEN_PAYMENT_VERSION', '1.0.3' );
 define( 'OEN_PAYMENT_PLUGIN_FILE', __FILE__ );
 define( 'OEN_PAYMENT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'OEN_PAYMENT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
