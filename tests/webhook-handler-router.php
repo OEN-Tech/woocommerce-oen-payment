@@ -163,13 +163,15 @@ $GLOBALS['test_webhook_secret']      = in_array( $test_case, [
     'refund_succeeded',
     'refund_created',
     'refund_already_processed',
+    'refund_in_progress',
     'refund_fail',
 ], true ) ? 'whsec_integration_secret' : '';
 $GLOBALS['test_order_session'] = match ( $test_case ) {
     'ambiguous_completed' => 'sess_ambiguous',
     'signed_ambiguous_completed' => 'sess_ambiguous',
     'missing_amount' => 'sess_missing_amount',
-    'refund_succeeded', 'refund_created', 'refund_already_processed', 'refund_fail', 'refund_unsigned' => 'cs_refund_test',
+    'refund_succeeded', 'refund_created', 'refund_already_processed', 'refund_in_progress',
+    'refund_fail', 'refund_unsigned' => 'cs_refund_test',
     default => 'sess_default',
 };
 $GLOBALS['test_order']         = new WC_Order( $GLOBALS['test_order_id'], 1234 );
@@ -177,6 +179,11 @@ $GLOBALS['test_order']->update_meta_data( '_oen_order_id', $GLOBALS['test_order_
 $GLOBALS['test_order']->update_meta_data( '_oen_session_id', $GLOBALS['test_order_session'] );
 if ( 'refund_already_processed' === $test_case ) {
     $GLOBALS['test_order']->update_meta_data( '_oen_processed_refund_ids', [ 'rf_dup' ] );
+}
+if ( 'refund_in_progress' === $test_case ) {
+    // A merchant-initiated refund is in flight: the claim was taken moments ago and
+    // the admin path has not yet reported an outcome.
+    $GLOBALS['test_order']->update_meta_data( '_oen_refund_in_progress', (string) time() );
 }
 
 function wc_get_orders( array $args ): array {

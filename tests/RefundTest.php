@@ -359,6 +359,37 @@ test_assert(
 );
 test_assert( OEN_Refund_Registry::is_processed( $order, 'rf_race' ), 'the refund id must be recorded' );
 
+// The two outcomes the webhook's deferral depends on. The webhook answers non-2xx while
+// a claim is held, so the event is delivered again; what it finds on redelivery must be
+// unambiguous either way.
+//
+// 1. the admin path succeeded: the refund id is recorded, so redelivery is an idempotent
+//    no-op and only ONE WooCommerce refund exists.
+$order = new Test_Refund_Order( 4251 );
+OEN_Refund_Registry::begin( $order );
+test_assert(
+    ! OEN_Refund_Registry::is_processed( $order, 'rf_deferred' ),
+    'a held claim must not read as a recorded refund — the webhook that defers on it records '
+        . 'nothing, precisely so a later failure of the admin path stays recoverable'
+);
+OEN_Refund_Registry::mark_processed( $order, 'rf_deferred' );
+test_assert(
+    OEN_Refund_Registry::is_processed( $order, 'rf_deferred' ) && ! OEN_Refund_Registry::is_in_progress( $order ),
+    'a successful admin refund must record the id and release the claim, so the redelivered '
+        . 'webhook is recognised as a duplicate instead of creating a second refund'
+);
+
+// 2. the admin path failed: nothing is recorded and the claim is released, so the
+//    redelivered webhook mirrors the refund that OEN already made.
+$order = new Test_Refund_Order( 4252 );
+OEN_Refund_Registry::begin( $order );
+OEN_Refund_Registry::end( $order );
+test_assert(
+    ! OEN_Refund_Registry::is_in_progress( $order ) && ! OEN_Refund_Registry::is_processed( $order, 'rf_deferred' ),
+    'a failed admin refund must leave the order clear of both the claim and the refund id, or '
+        . 'the redelivered webhook has no way to mirror a refund OEN has already paid out'
+);
+
 // A claim from a request that died must not block webhook mirroring forever.
 $order = new Test_Refund_Order( 4250 );
 $order->update_meta_data(
