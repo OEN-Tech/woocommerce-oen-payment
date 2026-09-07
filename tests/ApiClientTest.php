@@ -67,6 +67,9 @@ if ( ! class_exists( 'WC_Order', false ) ) {
         private bool $paid = false;
         private array $meta = [];
 
+        /** @var array<int, string> */
+        public array $notes = [];
+
         public function __construct( int $id, int $total = 1234 ) {
             $this->id    = $id;
             $this->total = $total;
@@ -93,6 +96,12 @@ if ( ! class_exists( 'WC_Order', false ) ) {
         }
 
         public function save(): void {}
+
+        public function add_order_note( string $note ): int {
+            $this->notes[] = $note;
+
+            return count( $this->notes );
+        }
 
         public function is_paid(): bool {
             return $this->paid;
@@ -756,6 +765,348 @@ function test_create_webhook_uses_hosted_checkout_contract(): void {
     );
 }
 
+/*
+ * Payment-method changes must invalidate session reuse.
+ *
+ * A hosted checkout session is created for one payment method and its checkout page
+ * is that method's page. The reuse path used to check only the session id, the order
+ * id and the amount — all of which still match after the buyer goes back and picks a
+ * different method — so it handed back the previous method's checkout URL and the
+ * buyer could not get away from the method they had just rejected.
+ */
+function test_process_payment_creates_new_session_when_payment_method_changed(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1010, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_cvs' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_cvs' );
+    $order->update_meta_data( '_oen_payment_method', 'cvs' );
+    $GLOBALS['test_wc_orders'][1010] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_cvs',
+                'status'      => 'created',
+                'orderId'     => 'wc-order-1010',
+                'amount'      => 1234,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_cvs',
+        ] ),
+    ];
+    // The replacement session is created first; the superseded one is cancelled after.
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_card',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_card',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [ 'id' => 'sess_cvs', 'status' => 'cancelled' ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1010 );
+
+    test_assert(
+        'success' === ( $result['result'] ?? null ),
+        'process_payment() should succeed after the buyer changes payment method.'
+    );
+    test_assert(
+        'https://oen.tw/checkout/sess_card' === ( $result['redirect'] ?? null ),
+        'process_payment() should redirect to a session created for the newly chosen payment '
+            . 'method, not to the checkout URL of the method the buyer just left.'
+    );
+    test_assert(
+        'sess_card' === $order->get_meta( '_oen_session_id' ),
+        'process_payment() should store the new session id when the payment method changed.'
+    );
+    test_assert(
+        'card' === $order->get_meta( '_oen_payment_method' ),
+        'process_payment() should record the payment method the new session was created for.'
+    );
+
+    $create_call = $GLOBALS['test_http_post_calls'][0] ?? null;
+    test_assert(
+        is_array( $create_call )
+            && ( $create_call['url'] ?? null ) === 'https://api.oen.tw/api/hosted-checkout/v1/sessions',
+        'process_payment() should create a fresh session when the payment method changed.'
+    );
+}
+
+/*
+ * The superseded session stays payable until it is cancelled, so a tab left open on
+ * the previous payment page could charge the same order twice.
+ */
+function test_process_payment_cancels_the_superseded_session_after_the_replacement_exists(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1011, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_cvs' );
+    $order->update_meta_data( '_oen_payment_method', 'cvs' );
+    $GLOBALS['test_wc_orders'][1011] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_cvs',
+                'status'      => 'created',
+                'orderId'     => 'wc-order-1011',
+                'amount'      => 1234,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_cvs',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_card',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_card',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [ 'id' => 'sess_cvs', 'status' => 'cancelled' ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $gateway->process_payment( 1011 );
+
+    $urls = array_map(
+        static fn( array $call ): string => (string) ( $call['url'] ?? '' ),
+        $GLOBALS['test_http_post_calls']
+    );
+
+    test_assert(
+        in_array( 'https://api.oen.tw/api/hosted-checkout/v1/sessions/sess_cvs/cancel', $urls, true ),
+        'process_payment() should cancel the session it walked away from. Sent: ' . implode( ', ', $urls )
+    );
+
+    $create_index = array_search( 'https://api.oen.tw/api/hosted-checkout/v1/sessions', $urls, true );
+    $cancel_index = array_search(
+        'https://api.oen.tw/api/hosted-checkout/v1/sessions/sess_cvs/cancel',
+        $urls,
+        true
+    );
+
+    test_assert(
+        is_int( $create_index ) && is_int( $cancel_index ) && $create_index < $cancel_index,
+        'The superseded session must be cancelled only after the order points at its '
+            . 'replacement. Cancelling emits a cancellation event for the old session, and an '
+            . 'order still pointing at that session would be marked failed while the buyer is '
+            . 'paying the new one.'
+    );
+}
+
+/*
+ * Cancelling is best-effort: the buyer is waiting on a redirect and must not be blocked
+ * by it. The order is annotated instead, because a session that could not be cancelled
+ * is the case where a second payment remains possible.
+ */
+function test_process_payment_survives_a_failed_supersede_cancellation(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1012, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_cvs' );
+    $order->update_meta_data( '_oen_payment_method', 'cvs' );
+    $GLOBALS['test_wc_orders'][1012] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_cvs',
+                'status'      => 'created',
+                'orderId'     => 'wc-order-1012',
+                'amount'      => 1234,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_cvs',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_card',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_card',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 409 ],
+        'body'     => wp_json_encode( [
+            'error' => [
+                'code'    => 'SESSION_INVALID_STATE',
+                'message' => 'session can no longer be cancelled',
+            ],
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1012 );
+
+    test_assert(
+        'success' === ( $result['result'] ?? null ),
+        'A failed cancellation must not fail the payment — the replacement session exists '
+            . 'and the buyer must still be redirected to it.'
+    );
+    test_assert(
+        'https://oen.tw/checkout/sess_card' === ( $result['redirect'] ?? null ),
+        'The buyer should still be redirected to the new checkout URL.'
+    );
+    test_assert(
+        1 === count( $order->notes ),
+        'A session that could not be cancelled must leave an order note, because that is the '
+            . 'case where the order can still be paid twice.'
+    );
+}
+
+/*
+ * The reuse path is the point of the session cache: an unchanged payment method must not
+ * start a new session on every submit, or every retry would leave an abandoned session
+ * behind.
+ */
+function test_process_payment_reuses_session_when_payment_method_unchanged(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1013, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_card' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_card' );
+    $order->update_meta_data( '_oen_payment_method', 'card' );
+    $GLOBALS['test_wc_orders'][1013] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_card',
+                'status'      => 'created',
+                'orderId'     => 'wc-order-1013',
+                'amount'      => 1234,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_card',
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1013 );
+
+    test_assert(
+        'https://oen.tw/checkout/sess_card' === ( $result['redirect'] ?? null ),
+        'An unchanged payment method must still reuse the existing session.'
+    );
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'An unchanged payment method must neither create a new session nor cancel the current one.'
+    );
+}
+
+/*
+ * Orders created before the plugin recorded the payment method report an empty one.
+ * Treating that as a mismatch would abandon and recreate the session of every order
+ * that is mid-checkout during an upgrade.
+ */
+function test_process_payment_reuses_session_when_stored_payment_method_is_unknown(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1014, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_legacy' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_legacy' );
+    $GLOBALS['test_wc_orders'][1014] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_legacy',
+                'status'      => 'created',
+                'orderId'     => 'wc-order-1014',
+                'amount'      => 1234,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_legacy',
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1014 );
+
+    test_assert(
+        'https://oen.tw/checkout/sess_legacy' === ( $result['redirect'] ?? null ),
+        'An order with no recorded payment method must keep reusing its session.'
+    );
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'An unknown stored payment method must not be treated as a change.'
+    );
+}
+
+function test_cancel_session_uses_hosted_checkout_contract(): void {
+    test_reset_http_stubs();
+
+    $client = new OEN_API_Client( 'merchant-123', 'sk_test_secret' );
+
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [ 'id' => 'sess_123', 'status' => 'cancelled' ] ),
+    ];
+
+    test_assert(
+        method_exists( $client, 'cancel_session' ),
+        'OEN_API_Client::cancel_session() should exist so an abandoned session can be closed '
+            . 'instead of staying payable from a stale browser tab.'
+    );
+
+    $result = $client->cancel_session( 'sess_123' );
+
+    test_assert(
+        ( $GLOBALS['test_http_post_calls'][0]['url'] ?? null )
+            === 'https://api.oen.tw/api/hosted-checkout/v1/sessions/sess_123/cancel',
+        'cancel_session should POST to /hosted-checkout/v1/sessions/{id}/cancel.'
+    );
+    test_assert(
+        ( $GLOBALS['test_http_post_calls'][0]['args']['headers']['Authorization'] ?? null ) === 'Bearer sk_test_secret',
+        'cancel_session should authorize with the secret key.'
+    );
+    test_assert(
+        ( $result['status'] ?? null ) === 'cancelled',
+        'cancel_session should return the cancelled session resource.'
+    );
+}
+
+function test_cancel_session_surfaces_api_rejection(): void {
+    test_reset_http_stubs();
+
+    $client = new OEN_API_Client( 'merchant-123', 'sk_test_secret' );
+
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 409 ],
+        'body'     => wp_json_encode( [
+            'error' => [
+                'code'    => 'SESSION_INVALID_STATE',
+                'message' => 'session can no longer be cancelled',
+            ],
+        ] ),
+    ];
+
+    try {
+        $client->cancel_session( 'sess_123' );
+        throw new RuntimeException( 'cancel_session() should throw when the API refuses to cancel.' );
+    } catch ( RuntimeException $exception ) {
+        test_assert(
+            str_contains( $exception->getMessage(), 'SESSION_INVALID_STATE' ),
+            'A refused cancellation should surface the API error so callers can decide what to do.'
+        );
+    }
+}
+
+
 test_create_session_uses_hosted_checkout_contract();
 test_create_webhook_uses_hosted_checkout_contract();
 test_create_session_rejects_missing_session_id();
@@ -769,5 +1120,12 @@ test_process_payment_reuses_pending_session_with_top_level_status();
 test_process_payment_fails_closed_for_authoritative_charged_session();
 test_process_payment_fails_closed_for_unverified_failure_terminal_session();
 test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid();
+test_process_payment_creates_new_session_when_payment_method_changed();
+test_process_payment_cancels_the_superseded_session_after_the_replacement_exists();
+test_process_payment_survives_a_failed_supersede_cancellation();
+test_process_payment_reuses_session_when_payment_method_unchanged();
+test_process_payment_reuses_session_when_stored_payment_method_is_unknown();
+test_cancel_session_uses_hosted_checkout_contract();
+test_cancel_session_surfaces_api_rejection();
 
 echo "API client smoke harness passed.\n";
