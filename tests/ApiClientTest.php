@@ -67,6 +67,15 @@ if ( ! class_exists( 'WC_Order', false ) ) {
         private bool $paid = false;
         private array $meta = [];
 
+        /**
+         * Meta as of the last save(). A real WC_Order only persists meta on save(), and
+         * anything another request (a webhook) reads comes from what was persisted, so
+         * tests about "the order must already be updated when X happens" read this.
+         *
+         * @var array<string, mixed>
+         */
+        private array $saved_meta = [];
+
         /** @var array<int, string> */
         public array $notes = [];
 
@@ -95,7 +104,13 @@ if ( ! class_exists( 'WC_Order', false ) ) {
             unset( $this->meta[ $key ] );
         }
 
-        public function save(): void {}
+        public function save(): void {
+            $this->saved_meta = $this->meta;
+        }
+
+        public function get_saved_meta( string $key ): mixed {
+            return $this->saved_meta[ $key ] ?? '';
+        }
 
         public function add_order_note( string $note ): int {
             $this->notes[] = $note;
@@ -191,6 +206,7 @@ function test_reset_http_stubs(): void {
     $GLOBALS['test_http_get_calls']  = [];
     $GLOBALS['test_http_post_queue'] = [];
     $GLOBALS['test_http_get_queue']   = [];
+    $GLOBALS['test_http_post_observer'] = null;
     $GLOBALS['test_wc_notices']      = [];
     $GLOBALS['test_wc_orders']       = [];
     $GLOBALS['test_options']         = [];
@@ -921,6 +937,84 @@ function test_process_payment_cancels_the_superseded_session_after_the_replaceme
 }
 
 /*
+ * The order must already carry the replacement session — persisted, not just assigned —
+ * when the superseded session is cancelled. Cancelling emits checkout_session.cancelled
+ * for the old session, and the webhook handler recognises that event as a superseded
+ * attempt only because the session id stored on the order no longer matches it. Cancel
+ * first, and the event marks the order the buyer is now paying as failed.
+ *
+ * The call-order test above cannot see this: it proves the cancel request follows the
+ * create request, and a cancel placed between create_session() and the meta store still
+ * satisfies it. This one looks at what the order has persisted at the moment the cancel
+ * request goes out.
+ */
+function test_process_payment_persists_the_replacement_session_before_cancelling_the_old_one(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1015, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_cvs' );
+    $order->update_meta_data( '_oen_payment_method', 'cvs' );
+    $order->save();
+    $GLOBALS['test_wc_orders'][1015] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_cvs',
+                'status'      => 'created',
+                'orderId'     => 'wc-order-1015',
+                'amount'      => 1234,
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_cvs',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_card',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_card',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [ 'id' => 'sess_cvs', 'status' => 'cancelled' ] ),
+    ];
+
+    $persisted_at_cancel = [];
+
+    $GLOBALS['test_http_post_observer'] = static function ( string $url ) use ( $order, &$persisted_at_cancel ): void {
+        if ( str_ends_with( $url, '/hosted-checkout/v1/sessions/sess_cvs/cancel' ) ) {
+            $persisted_at_cancel[] = [
+                'session_id' => $order->get_saved_meta( '_oen_session_id' ),
+                'method'     => $order->get_saved_meta( '_oen_payment_method' ),
+            ];
+        }
+    };
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1015 );
+
+    test_assert(
+        'success' === ( $result['result'] ?? null ),
+        'process_payment() should succeed. Got: ' . var_export( $result, true )
+    );
+    test_assert(
+        1 === count( $persisted_at_cancel ),
+        'The superseded session must be cancelled exactly once. Cancel requests seen: '
+            . count( $persisted_at_cancel )
+    );
+    test_assert(
+        'sess_card' === $persisted_at_cancel[0]['session_id'] && 'card' === $persisted_at_cancel[0]['method'],
+        'When the cancel request goes out, the order must already have persisted the '
+            . 'replacement session id and payment method. Otherwise the cancellation event for '
+            . 'the old session matches the order and marks the attempt the buyer is paying as '
+            . 'failed. Persisted at cancel time: ' . var_export( $persisted_at_cancel[0], true )
+    );
+}
+
+/*
  * Cancelling is best-effort: the buyer is waiting on a redirect and must not be blocked
  * by it. The order is annotated instead, because a session that could not be cancelled
  * is the case where a second payment remains possible.
@@ -1362,6 +1456,7 @@ test_process_payment_fails_closed_for_unverified_failure_terminal_session();
 test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid();
 test_process_payment_creates_new_session_when_payment_method_changed();
 test_process_payment_cancels_the_superseded_session_after_the_replacement_exists();
+test_process_payment_persists_the_replacement_session_before_cancelling_the_old_one();
 test_process_payment_survives_a_failed_supersede_cancellation();
 test_process_payment_reuses_session_when_payment_method_unchanged();
 test_process_payment_reuses_session_when_stored_payment_method_is_unknown();
