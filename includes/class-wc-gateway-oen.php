@@ -367,7 +367,14 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             throw $this->get_reusable_session_verification_exception();
         }
 
-        $this->assert_verified_session_matches_order( $order, $session_id, $session );
+        $payment_method_changed = ! $this->stored_payment_method_matches( $order );
+
+        // A session that is about to be abandoned only has to be proven to belong to
+        // this order, not to still match its total: switching method can legitimately
+        // change the total (a store that charges a fee for one method but not another),
+        // and demanding the old total would refuse the switch outright and leave the
+        // buyer unable to pay by either method.
+        $this->assert_verified_session_matches_order( $order, $session_id, $session, ! $payment_method_changed );
 
         if ( 'refreshable_terminal' === $session_state ) {
             return '';
@@ -385,7 +392,7 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
         // Checked only after the verification above so that a session which has
         // already been paid still fails closed here, rather than quietly starting a
         // second attempt on an order that is already settled.
-        if ( ! $this->stored_payment_method_matches( $order ) ) {
+        if ( $payment_method_changed ) {
             $superseded_session_id = $session_id;
 
             return '';
@@ -478,10 +485,13 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
      * @param \WC_Order             $order      WooCommerce order.
      * @param string                $session_id Stored Hosted Checkout session id.
      * @param array<string, mixed>  $session    Hosted Checkout session payload.
+     * @param bool                  $require_matching_amount Whether the session amount must
+     *                                                       equal the order total. Only a session
+     *                                                       that is about to be reused needs it.
      *
      * @throws \RuntimeException When the stored session cannot be safely bound to the order.
      */
-    protected function assert_verified_session_matches_order( \WC_Order $order, string $session_id, array $session ): void {
+    protected function assert_verified_session_matches_order( \WC_Order $order, string $session_id, array $session, bool $require_matching_amount = true ): void {
         $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
         if ( '' === $response_session_id || $response_session_id !== $session_id ) {
             throw $this->get_reusable_session_verification_exception();
@@ -494,6 +504,10 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
 
         if ( '' === $expected_order_id || '' === $session_order_id || $session_order_id !== $expected_order_id ) {
             throw $this->get_reusable_session_verification_exception();
+        }
+
+        if ( ! $require_matching_amount ) {
+            return;
         }
 
         if ( ! array_key_exists( 'amount', $session ) || '' === sanitize_text_field( (string) $session['amount'] ) ) {

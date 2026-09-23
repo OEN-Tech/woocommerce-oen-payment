@@ -107,6 +107,13 @@ if ( ! class_exists( 'WC_Order', false ) ) {
             return $this->paid;
         }
 
+        /** @var string */
+        public string $status = 'pending';
+
+        public function update_status( string $status, string $note = '' ): void {
+            $this->status = $status;
+        }
+
         public function set_paid( bool $paid ): void {
             $this->paid = $paid;
         }
@@ -166,6 +173,15 @@ if ( ! class_exists( 'Test_OEN_Gateway', false ) ) {
                 'failureUrl' => 'https://store.example/checkout',
                 'cancelUrl'  => 'https://store.example/cart',
             ];
+        }
+    }
+}
+
+if ( ! class_exists( 'Test_OEN_CVS_Gateway', false ) ) {
+    class Test_OEN_CVS_Gateway extends Test_OEN_Gateway {
+        public function __construct() {
+            parent::__construct();
+            $this->payment_method_type = 'cvs';
         }
     }
 }
@@ -1107,6 +1123,230 @@ function test_cancel_session_surfaces_api_rejection(): void {
 }
 
 
+
+/*
+ * AC1 exactly as reported: a credit card session exists, the buyer goes back, picks
+ * convenience store and submits again. The CVS gateway must get a CVS session — not the
+ * card page — and the order must go on hold for the off-site payment as usual.
+ */
+function test_process_payment_card_to_cvs_switch_creates_a_cvs_session(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1020, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_card' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_card' );
+    $order->update_meta_data( '_oen_payment_method', 'card' );
+    $GLOBALS['test_wc_orders'][1020] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'id'          => 'sess_card',
+            'status'      => 'created',
+            'orderId'     => 'wc-order-1020',
+            'amount'      => 1234,
+            'checkoutUrl' => 'https://oen.tw/checkout/sess_card',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'id'          => 'sess_cvs',
+            'checkoutUrl' => 'https://oen.tw/checkout/sess_cvs',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [ 'id' => 'sess_card', 'status' => 'cancelled' ] ),
+    ];
+
+    $gateway = new Test_OEN_CVS_Gateway();
+    $result  = $gateway->process_payment( 1020 );
+
+    test_assert(
+        'https://oen.tw/checkout/sess_cvs' === ( $result['redirect'] ?? null ),
+        'Switching from card to convenience store must redirect to the new CVS checkout page, '
+            . 'not back to the card page. Got: ' . var_export( $result, true )
+    );
+    test_assert(
+        'sess_cvs' === $order->get_meta( '_oen_session_id' ) && 'cvs' === $order->get_meta( '_oen_payment_method' ),
+        'The order must now point at the CVS session and record cvs as its method.'
+    );
+    test_assert(
+        ( $GLOBALS['test_http_post_calls'][1]['url'] ?? null )
+            === 'https://api.oen.tw/api/hosted-checkout/v1/sessions/sess_card/cancel',
+        'The abandoned card session must be cancelled after the CVS session is created.'
+    );
+    test_assert(
+        'on-hold' === $order->status,
+        'A CVS checkout must still put the order on hold while the buyer pays off-site.'
+    );
+}
+
+/*
+ * A store can charge a fee for one method and not another, so switching method can
+ * change the order total. The abandoned session was created for the old total; demanding
+ * that it still match would refuse the switch and leave the buyer stuck on both methods.
+ */
+function test_process_payment_method_switch_tolerates_a_changed_total(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    // The order total now includes a CVS-only fee the card session never had.
+    $order = new WC_Order( 1021, 1264 );
+    $order->update_meta_data( '_oen_session_id', 'sess_card' );
+    $order->update_meta_data( '_oen_payment_method', 'card' );
+    $GLOBALS['test_wc_orders'][1021] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'id'      => 'sess_card',
+            'status'  => 'created',
+            'orderId' => 'wc-order-1021',
+            'amount'  => 1234,
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'id'          => 'sess_cvs',
+            'checkoutUrl' => 'https://oen.tw/checkout/sess_cvs',
+        ] ),
+    ];
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [ 'id' => 'sess_card', 'status' => 'cancelled' ] ),
+    ];
+
+    $gateway = new Test_OEN_CVS_Gateway();
+    $result  = $gateway->process_payment( 1021 );
+
+    test_assert(
+        'https://oen.tw/checkout/sess_cvs' === ( $result['redirect'] ?? null ),
+        'A method switch that changes the total must still start a session for the new '
+            . 'method. Got: ' . var_export( $result, true )
+    );
+    $create_body = json_decode( (string) ( $GLOBALS['test_http_post_calls'][0]['args']['body'] ?? '' ), true );
+    test_assert(
+        1264 === ( $create_body['amount'] ?? null ),
+        'The replacement session must be created for the current order total.'
+    );
+}
+
+/*
+ * The relaxed check is only for a session being abandoned. Reusing a session whose
+ * amount no longer matches the order must still fail closed.
+ */
+function test_process_payment_same_method_with_changed_total_still_fails_closed(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1022, 1264 );
+    $order->update_meta_data( '_oen_session_id', 'sess_card' );
+    $order->update_meta_data( '_oen_checkout_url', 'https://oen.tw/checkout/sess_card' );
+    $order->update_meta_data( '_oen_payment_method', 'card' );
+    $GLOBALS['test_wc_orders'][1022] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'id'          => 'sess_card',
+            'status'      => 'created',
+            'orderId'     => 'wc-order-1022',
+            'amount'      => 1234,
+            'checkoutUrl' => 'https://oen.tw/checkout/sess_card',
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( 1022 );
+
+    test_assert(
+        'failure' === ( $result['result'] ?? null ) && 0 === count( $GLOBALS['test_http_post_calls'] ),
+        'Reusing a session whose amount no longer matches the order must still fail closed.'
+    );
+}
+
+/*
+ * A session that has already been paid must fail closed even when the method changed:
+ * starting a second attempt would let the buyer pay the same order twice.
+ */
+function test_process_payment_method_switch_still_fails_closed_for_a_paid_session(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1023, 1264 );
+    $order->update_meta_data( '_oen_session_id', 'sess_card' );
+    $order->update_meta_data( '_oen_payment_method', 'card' );
+    $GLOBALS['test_wc_orders'][1023] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'id'      => 'sess_card',
+            'status'  => 'completed',
+            'orderId' => 'wc-order-1023',
+            'amount'  => 1234,
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_CVS_Gateway();
+    $result  = $gateway->process_payment( 1023 );
+
+    test_assert(
+        'failure' === ( $result['result'] ?? null ),
+        'A paid session must fail closed even after a method switch.'
+    );
+    test_assert(
+        0 === count( $GLOBALS['test_http_post_calls'] ),
+        'A paid session must be neither replaced nor cancelled.'
+    );
+}
+
+/*
+ * Abandoning a session cancels it, so the session must first be proven to belong to this
+ * order. A session bound to a different order id must fail closed, never be cancelled.
+ */
+function test_process_payment_method_switch_never_cancels_a_foreign_session(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1024, 1234 );
+    $order->update_meta_data( '_oen_session_id', 'sess_other' );
+    $order->update_meta_data( '_oen_payment_method', 'card' );
+    $GLOBALS['test_wc_orders'][1024] = $order;
+
+    $GLOBALS['test_http_get_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+            'id'      => 'sess_other',
+            'status'  => 'created',
+            'orderId' => 'wc-order-9999',
+            'amount'  => 1234,
+        ] ),
+    ];
+
+    $gateway = new Test_OEN_CVS_Gateway();
+    $result  = $gateway->process_payment( 1024 );
+
+    test_assert(
+        'failure' === ( $result['result'] ?? null ) && 0 === count( $GLOBALS['test_http_post_calls'] ),
+        'A session bound to another order must fail closed and must not be cancelled.'
+    );
+}
+
 test_create_session_uses_hosted_checkout_contract();
 test_create_webhook_uses_hosted_checkout_contract();
 test_create_session_rejects_missing_session_id();
@@ -1125,6 +1365,11 @@ test_process_payment_cancels_the_superseded_session_after_the_replacement_exists
 test_process_payment_survives_a_failed_supersede_cancellation();
 test_process_payment_reuses_session_when_payment_method_unchanged();
 test_process_payment_reuses_session_when_stored_payment_method_is_unknown();
+test_process_payment_card_to_cvs_switch_creates_a_cvs_session();
+test_process_payment_method_switch_tolerates_a_changed_total();
+test_process_payment_same_method_with_changed_total_still_fails_closed();
+test_process_payment_method_switch_still_fails_closed_for_a_paid_session();
+test_process_payment_method_switch_never_cancels_a_foreign_session();
 test_cancel_session_uses_hosted_checkout_contract();
 test_cancel_session_surfaces_api_rejection();
 
