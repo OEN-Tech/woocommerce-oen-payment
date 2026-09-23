@@ -473,6 +473,52 @@ function test_handle_refund_during_admin_refund_defers_instead_of_claiming(): vo
     }
 }
 
+/*
+ * The deferral only works if the claim cannot outlive the admin request. When that
+ * request dies without releasing it, the redelivered event must mirror the refund OEN
+ * already made once the claim has expired — otherwise it is deferred on every delivery
+ * until the backend gives up, and the refund is lost exactly as before the fix.
+ */
+function test_handle_refund_after_an_expired_claim_mirrors_the_refund(): void {
+    $server = integration_start_server();
+
+    try {
+        $payload = [
+            'type' => 'refund.succeeded',
+            'data' => [
+                'id'        => 'rf_orphaned',
+                'sessionId' => 'cs_refund_test',
+                'amount'    => 500,
+                'status'    => 'refunded',
+                'mode'      => 'test',
+                'createdAt' => '2026-04-05T00:00:00+00:00',
+            ],
+        ];
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_stale_claim',
+            $payload,
+            [ 'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ) ]
+        );
+
+        test_assert(
+            200 === $result['status_code'],
+            'An expired claim must not defer the event. Got: ' . $result['status_code']
+        );
+        test_assert(
+            1 === count( $result['body']['refunds'] ?? [] ),
+            'An expired claim must let the event mirror exactly one WooCommerce refund.'
+        );
+        $processed = $result['body']['order']['meta']['_oen_processed_refund_ids'] ?? [];
+        test_assert(
+            in_array( 'rf_orphaned', is_array( $processed ) ? $processed : [], true ),
+            'The mirrored refund id must be recorded so later redeliveries are no-ops.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
 function test_handle_refund_for_unknown_session_returns_404(): void {
     $server = integration_start_server();
 
@@ -591,6 +637,7 @@ test_handle_refund_succeeded_creates_wc_refund();
 test_handle_refund_created_is_acknowledged_without_refunding();
 test_handle_refund_succeeded_is_idempotent();
 test_handle_refund_during_admin_refund_defers_instead_of_claiming();
+test_handle_refund_after_an_expired_claim_mirrors_the_refund();
 test_handle_refund_for_unknown_session_returns_404();
 test_handle_refund_creation_failure_returns_502();
 test_handle_refund_without_configured_secret_is_rejected();

@@ -164,6 +164,7 @@ $GLOBALS['test_webhook_secret']      = in_array( $test_case, [
     'refund_created',
     'refund_already_processed',
     'refund_in_progress',
+    'refund_stale_claim',
     'refund_fail',
 ], true ) ? 'whsec_integration_secret' : '';
 $GLOBALS['test_order_session'] = match ( $test_case ) {
@@ -171,7 +172,7 @@ $GLOBALS['test_order_session'] = match ( $test_case ) {
     'signed_ambiguous_completed' => 'sess_ambiguous',
     'missing_amount' => 'sess_missing_amount',
     'refund_succeeded', 'refund_created', 'refund_already_processed', 'refund_in_progress',
-    'refund_fail', 'refund_unsigned' => 'cs_refund_test',
+    'refund_stale_claim', 'refund_fail', 'refund_unsigned' => 'cs_refund_test',
     default => 'sess_default',
 };
 $GLOBALS['test_order']         = new WC_Order( $GLOBALS['test_order_id'], 1234 );
@@ -279,6 +280,16 @@ if ( ! class_exists( 'OEN_API_Client', false ) ) {
 
 require_once __DIR__ . '/../includes/class-oen-payment-info.php';
 require_once __DIR__ . '/../includes/class-oen-refund-registry.php';
+
+if ( 'refund_stale_claim' === $test_case ) {
+    // The admin request died without releasing its claim (PHP killed mid-refund), so
+    // the claim is older than its TTL and nothing will ever release it.
+    $GLOBALS['test_order']->update_meta_data(
+        '_oen_refund_in_progress',
+        (string) ( time() - OEN_Refund_Registry::IN_PROGRESS_TTL - 1 )
+    );
+}
+
 require_once __DIR__ . '/../includes/class-oen-webhook-handler.php';
 
 $handler = new OEN_Webhook_Handler();
