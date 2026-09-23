@@ -137,7 +137,8 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
 
             $client = OEN_API_Client::from_settings();
 
-            $reusable_checkout_url = $this->get_reusable_checkout_url( $order, $client );
+            $superseded_session_id = '';
+            $reusable_checkout_url = $this->get_reusable_checkout_url( $order, $client, $superseded_session_id );
 
             if ( '' !== $reusable_checkout_url ) {
                 return [
@@ -180,6 +181,15 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             }
             $order->update_meta_data( '_oen_payment_method', $this->payment_method_type );
             $order->save();
+
+            // Only once the order points at the new session. Cancelling emits a
+            // cancellation event for the old session, and the order must already have
+            // moved on so that event is recognised as belonging to a superseded
+            // attempt — otherwise it would mark the order the buyer is currently
+            // paying as failed.
+            if ( '' !== $superseded_session_id ) {
+                $this->cancel_superseded_session( $order, $superseded_session_id, $client );
+            }
 
             // CVS/ATM 需要等待客戶繳費，設為 on-hold 避免被 WooCommerce 自動取消。
             if ( in_array( $this->payment_method_type, [ 'cvs', 'atm' ], true ) ) {
@@ -323,12 +333,18 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
      * Reuse the current hosted checkout attempt when the order already has an
      * active session and its checkout URL is still usable.
      *
-     * @param \WC_Order       $order  WooCommerce order.
-     * @param OEN_API_Client  $client API client.
+     * @param \WC_Order      $order                 WooCommerce order.
+     * @param OEN_API_Client $client                API client.
+     * @param string         $superseded_session_id Set to the id of a still-payable session
+     *                                              this order is walking away from, so the
+     *                                              caller can cancel it once the replacement
+     *                                              is in place. Left empty otherwise.
      * @return string Reusable checkout URL, or empty string when a fresh attempt is needed.
      * @throws \RuntimeException When the stored session cannot be verified safely.
      */
-    protected function get_reusable_checkout_url( \WC_Order $order, OEN_API_Client $client ): string {
+    protected function get_reusable_checkout_url( \WC_Order $order, OEN_API_Client $client, string &$superseded_session_id = '' ): string {
+        $superseded_session_id = '';
+
         $session_id = sanitize_text_field( (string) $order->get_meta( '_oen_session_id' ) );
 
         if ( '' === $session_id ) {
@@ -351,7 +367,14 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
             throw $this->get_reusable_session_verification_exception();
         }
 
-        $this->assert_verified_session_matches_order( $order, $session_id, $session );
+        $payment_method_changed = ! $this->stored_payment_method_matches( $order );
+
+        // A session that is about to be abandoned only has to be proven to belong to
+        // this order, not to still match its total: switching method can legitimately
+        // change the total (a store that charges a fee for one method but not another),
+        // and demanding the old total would refuse the switch outright and leave the
+        // buyer unable to pay by either method.
+        $this->assert_verified_session_matches_order( $order, $session_id, $session, ! $payment_method_changed );
 
         if ( 'refreshable_terminal' === $session_state ) {
             return '';
@@ -359,6 +382,20 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
 
         if ( 'verified_success_terminal' === $session_state ) {
             throw $this->get_reusable_session_verification_exception();
+        }
+
+        // A session belongs to the payment method it was created for — its checkout
+        // page is that method's page. Reusing it after the buyer went back and picked
+        // a different method sends them straight back to the method they just
+        // rejected, with no way out of it.
+        //
+        // Checked only after the verification above so that a session which has
+        // already been paid still fails closed here, rather than quietly starting a
+        // second attempt on an order that is already settled.
+        if ( $payment_method_changed ) {
+            $superseded_session_id = $session_id;
+
+            return '';
         }
 
         $checkout_url = sanitize_text_field( (string) ( $session['checkoutUrl'] ?? '' ) );
@@ -383,15 +420,78 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
     }
 
     /**
+     * Whether the stored session was created for the payment method now in use.
+     *
+     * An order that predates this meta reports an empty method. Treat that as a match:
+     * upgrading the plugin mid-checkout must not force a new session on every order,
+     * which would defeat session reuse entirely.
+     *
+     * @param \WC_Order $order WooCommerce order.
+     */
+    protected function stored_payment_method_matches( \WC_Order $order ): bool {
+        $stored_method = sanitize_text_field( (string) $order->get_meta( '_oen_payment_method' ) );
+
+        return '' === $stored_method || $stored_method === $this->payment_method_type;
+    }
+
+    /**
+     * Best-effort cancellation of the session this order has just moved off.
+     *
+     * The superseded session stays payable until it is cancelled, so a browser tab
+     * left open on the previous payment page could charge the same order twice. This
+     * must never block the buyer's redirect, so every failure is swallowed; when the
+     * session could not be cancelled the order gets a note, because that is the case
+     * where a second charge remains possible and someone may have to reconcile it.
+     * In practice that is the buyer having already submitted a payment on the old
+     * session — a session nobody has started paying is still cancellable.
+     *
+     * Depends on the order already carrying the replacement session id: the resulting
+     * cancellation event is only recognised as a superseded attempt because its
+     * session id no longer matches the one stored on the order (see
+     * OEN_Webhook_Handler::detect_attempt_mismatch). Cancel before that store and the
+     * event marks the order the buyer is currently paying as failed.
+     *
+     * @param \WC_Order      $order      WooCommerce order.
+     * @param string         $session_id The superseded Hosted Checkout session id.
+     * @param OEN_API_Client $client     API client.
+     */
+    protected function cancel_superseded_session( \WC_Order $order, string $session_id, OEN_API_Client $client ): void {
+        try {
+            $client->cancel_session( $session_id );
+
+            return;
+        } catch ( \Throwable $exception ) {
+            wc_get_logger()->error(
+                sprintf(
+                    'OEN could not cancel the superseded checkout session for order #%1$d: %2$s',
+                    $order->get_id(),
+                    $exception->getMessage()
+                ),
+                [ 'source' => 'oen-payment' ]
+            );
+        }
+
+        $order->add_order_note(
+            __(
+                'The previous OEN checkout attempt for this order could not be cancelled after the payment method was changed. If it is still open in the buyer\'s browser it may result in a second payment — check for a duplicate before refunding.',
+                'woocommerce-oen-payment'
+            )
+        );
+    }
+
+    /**
      * Verify that a fetched Hosted Checkout session is still bound to the current order.
      *
      * @param \WC_Order             $order      WooCommerce order.
      * @param string                $session_id Stored Hosted Checkout session id.
      * @param array<string, mixed>  $session    Hosted Checkout session payload.
+     * @param bool                  $require_matching_amount Whether the session amount must
+     *                                                       equal the order total. Only a session
+     *                                                       that is about to be reused needs it.
      *
      * @throws \RuntimeException When the stored session cannot be safely bound to the order.
      */
-    protected function assert_verified_session_matches_order( \WC_Order $order, string $session_id, array $session ): void {
+    protected function assert_verified_session_matches_order( \WC_Order $order, string $session_id, array $session, bool $require_matching_amount = true ): void {
         $response_session_id = sanitize_text_field( (string) ( $session['id'] ?? $session['sessionId'] ?? '' ) );
         if ( '' === $response_session_id || $response_session_id !== $session_id ) {
             throw $this->get_reusable_session_verification_exception();
@@ -404,6 +504,10 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
 
         if ( '' === $expected_order_id || '' === $session_order_id || $session_order_id !== $expected_order_id ) {
             throw $this->get_reusable_session_verification_exception();
+        }
+
+        if ( ! $require_matching_amount ) {
+            return;
         }
 
         if ( ! array_key_exists( 'amount', $session ) || '' === sanitize_text_field( (string) $session['amount'] ) ) {

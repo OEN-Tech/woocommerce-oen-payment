@@ -18,9 +18,16 @@ defined( 'ABSPATH' ) || exit;
  * the webhook can arrive BEFORE process_refund() learns the refund id.
  *
  *  - an in-progress claim, set before the refund request goes out, tells the webhook
- *    that the admin path owns this refund; and
+ *    that the admin path owns this refund for now — the webhook defers by leaving the
+ *    event unacknowledged, so it is delivered again once the claim is settled; and
  *  - the list of mirrored refund ids, which makes both paths idempotent on retries
  *    and on the paired refund.created/refund.succeeded events.
+ *
+ * The claim is a deferral, never a substitute for a recorded refund. The admin path can
+ * still fail after the claim is taken — on a request that times out over a refund the
+ * backend actually completed — so nothing may treat a claim as proof that a WooCommerce
+ * refund exists. The claim also expires, so a request that dies mid-refund cannot block
+ * mirroring forever.
  */
 final class OEN_Refund_Registry {
 
@@ -42,7 +49,8 @@ final class OEN_Refund_Registry {
 
     /**
      * Claim this order's next refund for the admin-initiated path, before the refund
-     * request is sent. The webhook checks this and leaves the WC refund to WooCommerce.
+     * request is sent. The webhook checks this and defers, leaving the WC refund to
+     * WooCommerce — but only until the claim is released or expires.
      *
      * @param \WC_Order $order The WooCommerce order.
      */

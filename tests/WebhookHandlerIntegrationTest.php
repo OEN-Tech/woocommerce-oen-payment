@@ -414,6 +414,111 @@ function test_handle_refund_succeeded_is_idempotent(): void {
     }
 }
 
+/*
+ * A refund.succeeded that lands while a merchant-initiated refund is still in flight
+ * must be deferred, not swallowed.
+ *
+ * The backend emits refund.succeeded while it is still answering the refund request,
+ * so this event routinely beats the admin path to the refund id. That path creates the
+ * WooCommerce refund, so mirroring it here as well would double total_refunded — but
+ * the admin path can still fail after this point (a request that times out over a
+ * refund the backend actually completed). Recording the refund id here, as this branch
+ * once did, made every later delivery of the event a no-op and left the money refunded
+ * at OEN with no refund on the order, permanently and with nothing to retry.
+ *
+ * Answering non-2xx leaves the delivery unacknowledged so the event comes back later,
+ * by which time the admin path has either recorded the refund id or released its claim.
+ */
+function test_handle_refund_during_admin_refund_defers_instead_of_claiming(): void {
+    $server = integration_start_server();
+
+    try {
+        $payload = [
+            'type' => 'refund.succeeded',
+            'data' => [
+                'id'        => 'rf_in_flight',
+                'sessionId' => 'cs_refund_test',
+                'amount'    => 500,
+                'status'    => 'refunded',
+                'mode'      => 'test',
+                'createdAt' => '2026-04-05T00:00:00+00:00',
+            ],
+        ];
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_in_progress',
+            $payload,
+            [ 'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ) ]
+        );
+
+        test_assert(
+            409 === $result['status_code'],
+            'A refund.succeeded arriving during an in-flight admin refund must be answered with a '
+                . 'non-2xx status so it is delivered again. Got: ' . $result['status_code']
+        );
+        test_assert(
+            0 === count( $result['body']['refunds'] ?? [ 'sentinel' ] ),
+            'The deferred event must not create a WooCommerce refund — the admin path creates it.'
+        );
+
+        $processed = $result['body']['order']['meta']['_oen_processed_refund_ids'] ?? [];
+        test_assert(
+            ! in_array( 'rf_in_flight', is_array( $processed ) ? $processed : [], true ),
+            'The deferred event must NOT record the refund id. Recording it here makes every '
+                . 'redelivery a no-op, so a refund the admin path then fails to record is lost '
+                . 'for good: refunded at OEN, absent from WooCommerce, unrecoverable.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
+/*
+ * The deferral only works if the claim cannot outlive the admin request. When that
+ * request dies without releasing it, the redelivered event must mirror the refund OEN
+ * already made once the claim has expired — otherwise it is deferred on every delivery
+ * until the backend gives up, and the refund is lost exactly as before the fix.
+ */
+function test_handle_refund_after_an_expired_claim_mirrors_the_refund(): void {
+    $server = integration_start_server();
+
+    try {
+        $payload = [
+            'type' => 'refund.succeeded',
+            'data' => [
+                'id'        => 'rf_orphaned',
+                'sessionId' => 'cs_refund_test',
+                'amount'    => 500,
+                'status'    => 'refunded',
+                'mode'      => 'test',
+                'createdAt' => '2026-04-05T00:00:00+00:00',
+            ],
+        ];
+        $result = integration_post_webhook(
+            $server['port'],
+            'refund_stale_claim',
+            $payload,
+            [ 'OenPay-Signature' => integration_build_signature_header( 'whsec_integration_secret', $payload ) ]
+        );
+
+        test_assert(
+            200 === $result['status_code'],
+            'An expired claim must not defer the event. Got: ' . $result['status_code']
+        );
+        test_assert(
+            1 === count( $result['body']['refunds'] ?? [] ),
+            'An expired claim must let the event mirror exactly one WooCommerce refund.'
+        );
+        $processed = $result['body']['order']['meta']['_oen_processed_refund_ids'] ?? [];
+        test_assert(
+            in_array( 'rf_orphaned', is_array( $processed ) ? $processed : [], true ),
+            'The mirrored refund id must be recorded so later redeliveries are no-ops.'
+        );
+    } finally {
+        integration_stop_server( $server );
+    }
+}
+
 function test_handle_refund_for_unknown_session_returns_404(): void {
     $server = integration_start_server();
 
@@ -531,6 +636,8 @@ test_handle_rejects_invalid_signature_before_processing_webhook();
 test_handle_refund_succeeded_creates_wc_refund();
 test_handle_refund_created_is_acknowledged_without_refunding();
 test_handle_refund_succeeded_is_idempotent();
+test_handle_refund_during_admin_refund_defers_instead_of_claiming();
+test_handle_refund_after_an_expired_claim_mirrors_the_refund();
 test_handle_refund_for_unknown_session_returns_404();
 test_handle_refund_creation_failure_returns_502();
 test_handle_refund_without_configured_secret_is_rejected();

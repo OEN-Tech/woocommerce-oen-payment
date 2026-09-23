@@ -52,6 +52,7 @@ $GLOBALS['test_http_post_queue']    = $GLOBALS['test_http_post_queue'] ?? [];
 $GLOBALS['test_http_get_queue']     = $GLOBALS['test_http_get_queue'] ?? [];
 $GLOBALS['test_http_request_calls'] = $GLOBALS['test_http_request_calls'] ?? [];
 $GLOBALS['test_http_request_queue'] = $GLOBALS['test_http_request_queue'] ?? [];
+$GLOBALS['test_http_post_observer'] = $GLOBALS['test_http_post_observer'] ?? null;
 
 function __( string $text, string $domain = '' ): string {
     return $text;
@@ -84,6 +85,15 @@ function wp_remote_post( string $url, array $args = [] ): array|TestWpError {
         'url'  => $url,
         'args' => $args,
     ];
+
+    // Optional per-test observer, invoked while the request is "in flight". A test sets
+    // it to assert on state that must already hold at that moment — for example that the
+    // order has been updated before a request that depends on it goes out. Call order
+    // alone cannot show that.
+    $observer = $GLOBALS['test_http_post_observer'] ?? null;
+    if ( is_callable( $observer ) ) {
+        $observer( $url, $args );
+    }
 
     return array_shift( $GLOBALS['test_http_post_queue'] ) ?? [
         'response' => [ 'code' => 200 ],

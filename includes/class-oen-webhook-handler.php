@@ -231,13 +231,24 @@ class OEN_Webhook_Handler {
                 // emits refund.succeeded while it is still answering that request, so
                 // this event can arrive before process_refund() learns the refund id.
                 // WooCommerce creates the WC refund on that path — mirroring it here
-                // too would double total_refunded. Claim the id so a webhook retry
-                // cannot mirror it later either.
-                OEN_Refund_Registry::mark_processed( $order, $refund_id );
+                // too would double total_refunded.
+                //
+                // Deliberately do NOT record the refund id here. The admin path can
+                // still fail after this point — a request that times out on a refund
+                // the backend actually completed — and a recorded id would make every
+                // later delivery of this event a no-op, leaving the money refunded at
+                // OEN with no refund on the order, permanently.
+                //
+                // Answering non-2xx instead leaves the event unacknowledged, so it is
+                // delivered again later. By then the admin path has either recorded
+                // the refund id (the idempotent branch above) or released its claim
+                // (the mirroring branch below), and the outcome is the same either
+                // way. The cost is one rejected delivery per admin-initiated refund.
                 $this->log(
-                    'Refund ' . $refund_id . ' left to the admin refund path for order #' . $order_id
+                    'Refund ' . $refund_id . ' deferred to the in-flight admin refund path for order #' . $order_id
                 );
-                $response = [ 'status' => 'ok', 'message' => 'Refund handled by the admin path' ];
+                $response      = [ 'status' => 'error', 'message' => 'A refund is already in progress for this order' ];
+                $response_code = 409;
             } else {
                 $amount = intval( $event_data['amount'] ?? 0 );
 

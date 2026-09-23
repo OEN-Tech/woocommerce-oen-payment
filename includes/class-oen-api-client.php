@@ -84,6 +84,36 @@ class OEN_API_Client {
     }
 
     /**
+     * Cancel a Hosted Checkout session the plugin is walking away from.
+     *
+     * An abandoned session stays payable until it is cancelled, so a stale browser
+     * tab still showing its checkout page could charge the same order a second time.
+     * Only a session that has not been paid yet can be cancelled; the API rejects
+     * anything further along, which callers must tolerate.
+     *
+     * @param string $session_id Hosted Checkout session id.
+     * @return array<string, mixed> The cancelled session resource.
+     * @throws \RuntimeException When the API refuses to cancel the session.
+     */
+    public function cancel_session( string $session_id ): array {
+        $response = wp_remote_post(
+            $this->base_url . '/hosted-checkout/v1/sessions/' . rawurlencode( $session_id ) . '/cancel',
+            [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $this->secret_key,
+                    'Content-Type'  => 'application/json',
+                ],
+                'body'    => wp_json_encode( [] ),
+                // Deliberately shorter than the other calls: this runs while the buyer
+                // is waiting on a redirect, and it is best-effort anyway.
+                'timeout' => 10,
+            ]
+        );
+
+        return $this->parse_response( $response );
+    }
+
+    /**
      * Register a Hosted Checkout webhook endpoint. The create response is the only
      * place the signing secret is returned, so callers must persist it.
      *
