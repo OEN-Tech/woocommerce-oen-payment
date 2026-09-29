@@ -47,17 +47,26 @@ of the following together; a release that misses one ships wrong information to 
 1. **Version** — `Version:` in the header of `woocommerce-oen-payment.php`, the
    `OEN_PAYMENT_VERSION` constant in the same file, `Stable tag:` in `readme.txt`, and the example
    folder name `woocommerce-oen-payment-X.Y.Z` in `README.md` 安裝 and `docs/setup-guide.md` 步驟 2.
-2. **Compatibility** — `WC tested up to:` (plugin header and `readme.txt`) and `Tested up to:`
-   (`readme.txt`), plus the tested-versions sentence in `README.md` 系統需求 and the
-   screenshot-environment line in `docs/setup-guide.md`. Raise them only to versions you actually
-   tested this release on.
+2. **Compatibility** — `WC tested up to:` (plugin header and `readme.txt`), `Tested up to:`
+   (`readme.txt`), and the tested-versions sentence in `README.md` 系統需求. Raise them only to
+   versions you actually tested this release on. When a minimum changes, update `Requires at least:`,
+   `Requires PHP:` and `WC requires at least:` in the plugin header and `readme.txt`, and the
+   `README.md` 系統需求 table, together.
 3. **Changelog** — one entry for the new version in `CHANGELOG.md` (Traditional Chinese) and the
    same items in `readme.txt` › `== Changelog ==` (English). Write what changed for merchants and
    buyers; no internal references.
-4. **Docs** — if the release changes behaviour or a screen described in `README.md`,
+4. **Translations** — when user-facing strings change, regenerate
+   `languages/woocommerce-oen-payment.pot` (`wp i18n make-pot . languages/woocommerce-oen-payment.pot`),
+   update and compile `languages/woocommerce-oen-payment-zh_TW.po` / `.mo`, and set
+   `Project-Id-Version` to the new version. Then re-check the UI strings quoted in the docs.
+5. **Docs** — if the release changes behaviour or a screen described in `README.md`,
    `docs/setup-guide.md`, or `docs/faq.md`, update the text and retake the affected screenshots in
-   `docs/images/` in the same PR.
-5. **GitHub Release** — after tagging, publish the release notes from the `CHANGELOG.md` entry.
+   `docs/images/` in the same PR. When you retake screenshots, also update the
+   screenshot-environment line in `docs/setup-guide.md` (including the plugin version).
+6. **Release archive** — merchants install GitHub's "Source code (zip)". `.gitattributes` keeps
+   `docs/`, `tests/` and repository-only files out of it. Add any new file that the plugin does not
+   need at runtime there, and check the result with `git archive HEAD | tar -t`.
+7. **GitHub Release** — after tagging, publish the release notes from the `CHANGELOG.md` entry.
 
 `README.md` and `docs/` describe the latest release. Behaviour that exists only on `main` is not
 documented as available until it is released.
