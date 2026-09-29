@@ -56,7 +56,8 @@ of the following together; a release that misses one ships wrong information to 
    same items in `readme.txt` › `== Changelog ==` (English). Write what changed for merchants and
    buyers; no internal references.
 4. **Translations** — when user-facing strings change, regenerate
-   `languages/woocommerce-oen-payment.pot` (`wp i18n make-pot . languages/woocommerce-oen-payment.pot`),
+   `languages/woocommerce-oen-payment.pot` with
+   `wp i18n make-pot . languages/woocommerce-oen-payment.pot --exclude=tests,docs --headers='{"Report-Msgid-Bugs-To":"https://github.com/OEN-Tech/woocommerce-oen-payment/issues"}'`,
    update and compile `languages/woocommerce-oen-payment-zh_TW.po` / `.mo`, and set
    `Project-Id-Version` to the new version. Then re-check the UI strings quoted in the docs.
 5. **Docs** — if the release changes behaviour or a screen described in `README.md`,
