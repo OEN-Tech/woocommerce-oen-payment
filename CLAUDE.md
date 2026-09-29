@@ -38,3 +38,37 @@ organisation's network does not belong in this repository at all; keep that tool
 
 Both layers must stay runnable by anyone who clones this repository. Harnesses that require
 private endpoints, credentials, or a specific operator's machine are kept outside this repo.
+
+## Releasing
+
+A release is the tag `vX.Y.Z` on `main` plus its GitHub Release. Every release PR updates all
+of the following together; a release that misses one ships wrong information to merchants.
+
+1. **Version** — `Version:` in the header of `woocommerce-oen-payment.php`, the
+   `OEN_PAYMENT_VERSION` constant in the same file, `Stable tag:` in `readme.txt`, and the example
+   folder name `woocommerce-oen-payment-X.Y.Z` in `README.md` 安裝 and `docs/setup-guide.md` 步驟 2.
+2. **Compatibility** — `WC tested up to:` (plugin header and `readme.txt`) and `Tested up to:`
+   (`readme.txt`), plus the tested-versions sentence in `README.md` 系統需求 and the
+   screenshot-environment line in `docs/setup-guide.md`. Raise them only to versions you actually
+   tested this release on.
+3. **Changelog** — one entry for the new version in `CHANGELOG.md` (Traditional Chinese) and the
+   same items in `readme.txt` › `== Changelog ==` (English). Write what changed for merchants and
+   buyers; no internal references.
+4. **Docs** — if the release changes behaviour or a screen described in `README.md`,
+   `docs/setup-guide.md`, or `docs/faq.md`, update the text and retake the affected screenshots in
+   `docs/images/` in the same PR.
+5. **GitHub Release** — after tagging, publish the release notes from the `CHANGELOG.md` entry.
+
+`README.md` and `docs/` describe the latest release. Behaviour that exists only on `main` is not
+documented as available until it is released.
+
+## Documentation
+
+- `README.md` is ordered for merchants first (「使用外掛」), then developers (「開發者參考」).
+  Keep merchant sections free of code identifiers; put option keys, meta keys, hooks, and field
+  names in the developer half.
+- `docs/setup-guide.md` (step-by-step with screenshots) and `docs/faq.md` are merchant-facing.
+  Write them in Traditional Chinese with technical terms in English, in short sentences.
+- Screenshots in `docs/images/` use demo data only: no real merchant, person, domain, transaction,
+  session, webhook or refund identifier, payment code, key, IP address, or internal host. Mask
+  anything else before committing.
