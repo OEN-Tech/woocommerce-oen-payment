@@ -95,7 +95,7 @@ class OEN_Email_Handler {
             if ( $cvs_expired ) {
                 echo '<tr>';
                 echo '<th style="text-align:left;">' . esc_html__( 'Payment Deadline', 'woocommerce-oen-payment' ) . '</th>';
-                echo '<td>' . esc_html( $cvs_expired ) . '</td>';
+                echo '<td>' . esc_html( OEN_Payment_Info::format_deadline( (string) $cvs_expired ) ) . '</td>';
                 echo '</tr>';
             }
         }
@@ -132,7 +132,7 @@ class OEN_Email_Handler {
             printf( __( 'Payment Code: %s', 'woocommerce-oen-payment' ) . "\n", $cvs_code );
             if ( $cvs_expired ) {
                 /* translators: %s: payment deadline */
-                printf( __( 'Payment Deadline: %s', 'woocommerce-oen-payment' ) . "\n", $cvs_expired );
+                printf( __( 'Payment Deadline: %s', 'woocommerce-oen-payment' ) . "\n", OEN_Payment_Info::format_deadline( (string) $cvs_expired ) );
             }
         }
 

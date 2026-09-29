@@ -89,6 +89,50 @@ class OEN_Payment_Info {
     }
 
     /**
+     * Format a stored payment deadline for display, in the site's timezone.
+     *
+     * OEN returns the deadline as an ISO-8601 instant in UTC (for example
+     * 2026-10-01T08:40:57.000Z), and the OEN payment page shows it in local time.
+     * Printing the stored value verbatim showed buyers and merchants a deadline eight
+     * hours earlier than the one on the OEN page. The raw value stays in order meta and
+     * only the display converts it, so orders stored before this change are fixed too.
+     *
+     * Only a full date and time with a timezone is converted; anything else is returned
+     * unchanged. DateTimeImmutable also accepts values that do not name an instant —
+     * a local time without an offset (read as UTC under WordPress, so shown eight hours
+     * late), a bare date, "now", or 30 February — and would print a wrong deadline.
+     *
+     * @param string $raw Deadline as stored in order meta.
+     */
+    public static function format_deadline( string $raw ): string {
+        if ( '' === $raw ) {
+            return '';
+        }
+
+        $parsed = date_parse( $raw );
+        foreach ( [ 'year', 'month', 'day', 'hour', 'minute' ] as $field ) {
+            if ( ! is_int( $parsed[ $field ] ) ) {
+                return $raw;
+            }
+        }
+        if ( $parsed['error_count'] || $parsed['warning_count'] || empty( $parsed['is_localtime'] ) || isset( $parsed['relative'] ) ) {
+            return $raw;
+        }
+
+        try {
+            $deadline = new \DateTimeImmutable( $raw );
+        } catch ( \Exception $e ) {
+            return $raw;
+        }
+
+        $date_format = (string) get_option( 'date_format' ) ?: 'Y-m-d';
+        $time_format = (string) get_option( 'time_format' ) ?: 'H:i';
+        $formatted   = wp_date( $date_format . ' ' . $time_format, $deadline->getTimestamp() );
+
+        return is_string( $formatted ) && '' !== $formatted ? $formatted : $raw;
+    }
+
+    /**
      * Whether this order should have a payment code but does not have one yet.
      *
      * @param \WC_Order $order The WooCommerce order.
@@ -135,7 +179,7 @@ class OEN_Payment_Info {
 
         if ( '' !== $info['expires'] ) {
             echo '<tr><th>' . esc_html__( 'Pay before', 'woocommerce-oen-payment' ) . '</th>';
-            echo '<td>' . esc_html( $info['expires'] ) . '</td></tr>';
+            echo '<td>' . esc_html( self::format_deadline( $info['expires'] ) ) . '</td></tr>';
         }
 
         echo '</tbody></table>';
@@ -167,7 +211,7 @@ class OEN_Payment_Info {
 
         if ( '' !== $info['expires'] ) {
             echo '<br><small>' . esc_html__( 'Pay before', 'woocommerce-oen-payment' ) . ': '
-                . esc_html( $info['expires'] ) . '</small>';
+                . esc_html( self::format_deadline( $info['expires'] ) ) . '</small>';
         }
 
         echo '</p></div>';
