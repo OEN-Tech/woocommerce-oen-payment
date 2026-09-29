@@ -54,6 +54,12 @@ if ( ! function_exists( 'wp_schedule_single_event' ) ) {
         return true;
     }
 }
+if ( ! function_exists( 'wp_date' ) ) {
+    function wp_date( string $format, ?int $timestamp = null ): string|false {
+        $zone = new DateTimeZone( $GLOBALS['test_timezone'] ?? 'UTC' );
+        return ( new DateTimeImmutable( '@' . ( $timestamp ?? time() ) ) )->setTimezone( $zone )->format( $format );
+    }
+}
 
 class Test_Payment_Info_Order {
     /** @var array<string, mixed> */
@@ -279,5 +285,58 @@ pi_reset();
 $GLOBALS['test_current_order'] = new Test_Payment_Info_Order( 15, 'oen_cvs', 'on-hold' );
 $sync->run( 15, 0 );
 test_assert( [] === $GLOBALS['test_http_get_calls'], 'an order with no session id must not be read' );
+
+// ---- deadline display ----------------------------------------------------------
+//
+// OEN sends the deadline as a UTC instant, and its payment page shows it in local
+// time. Every surface the plugin renders must show the same local time — printing the
+// stored string verbatim reads eight hours early in Taiwan.
+
+require_once dirname( __DIR__ ) . '/includes/class-oen-email-handler.php';
+
+$GLOBALS['test_timezone']                              = 'Asia/Taipei';
+$GLOBALS['test_options']['date_format']               = 'Y/m/d';
+$GLOBALS['test_options']['time_format']               = 'H:i';
+$GLOBALS['test_options']['oen_show_payment_in_email'] = 'yes';
+
+test_assert(
+    '2026/10/01 16:40' === OEN_Payment_Info::format_deadline( '2026-10-01T08:40:57.000Z' ),
+    'a UTC deadline must be shown in the site timezone'
+);
+test_assert( '' === OEN_Payment_Info::format_deadline( '' ), 'a missing deadline must stay empty' );
+test_assert(
+    'not a date' === OEN_Payment_Info::format_deadline( 'not a date' ),
+    'a deadline that does not parse must be shown as stored'
+);
+
+$order = new Test_Payment_Info_Order(
+    20,
+    'oen_cvs',
+    'on-hold',
+    [
+        OEN_Payment_Info::META_CODE    => 'ABC123456789',
+        OEN_Payment_Info::META_NAME    => 'Convenience store',
+        OEN_Payment_Info::META_EXPIRES => '2026-10-01T08:40:57.000Z',
+    ]
+);
+
+$capture  = static function ( callable $render ): string {
+    ob_start();
+    $render();
+    return (string) ob_get_clean();
+};
+$display  = new OEN_Payment_Info();
+$email    = new OEN_Email_Handler();
+$surfaces = [
+    'order page'         => $capture( fn() => $display->render_for_customer( $order ) ),
+    'admin order screen' => $capture( fn() => $display->render_for_admin( $order ) ),
+    'HTML email'         => $capture( fn() => $email->add_payment_info( $order, false, false, null ) ),
+    'plain-text email'   => $capture( fn() => $email->add_payment_info( $order, false, true, null ) ),
+];
+
+foreach ( $surfaces as $surface => $output ) {
+    test_assert( str_contains( $output, '2026/10/01 16:40' ), "the {$surface} must show the deadline in the site timezone" );
+    test_assert( ! str_contains( $output, '08:40:57' ), "the {$surface} must not show the raw UTC deadline" );
+}
 
 echo "Payment info harness passed.\n";
