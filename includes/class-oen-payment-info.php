@@ -96,13 +96,27 @@ class OEN_Payment_Info {
      * Printing the stored value verbatim showed buyers and merchants a deadline eight
      * hours earlier than the one on the OEN page. The raw value stays in order meta and
      * only the display converts it, so orders stored before this change are fixed too.
-     * A value that does not parse as a date is returned unchanged.
+     *
+     * Only a full date and time with a timezone is converted; anything else is returned
+     * unchanged. DateTimeImmutable also accepts values that do not name an instant —
+     * a local time without an offset (read as UTC under WordPress, so shown eight hours
+     * late), a bare date, "now", or 30 February — and would print a wrong deadline.
      *
      * @param string $raw Deadline as stored in order meta.
      */
     public static function format_deadline( string $raw ): string {
         if ( '' === $raw ) {
             return '';
+        }
+
+        $parsed = date_parse( $raw );
+        foreach ( [ 'year', 'month', 'day', 'hour', 'minute' ] as $field ) {
+            if ( ! is_int( $parsed[ $field ] ) ) {
+                return $raw;
+            }
+        }
+        if ( $parsed['error_count'] || $parsed['warning_count'] || empty( $parsed['is_localtime'] ) || isset( $parsed['relative'] ) ) {
+            return $raw;
         }
 
         try {

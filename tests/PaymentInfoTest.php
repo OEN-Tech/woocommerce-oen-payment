@@ -54,10 +54,17 @@ if ( ! function_exists( 'wp_schedule_single_event' ) ) {
         return true;
     }
 }
+if ( ! function_exists( 'wp_timezone' ) ) {
+    function wp_timezone(): DateTimeZone {
+        return new DateTimeZone( (string) get_option( 'timezone_string' ) ?: 'UTC' );
+    }
+}
 if ( ! function_exists( 'wp_date' ) ) {
-    function wp_date( string $format, ?int $timestamp = null ): string|false {
-        $zone = new DateTimeZone( $GLOBALS['test_timezone'] ?? 'UTC' );
-        return ( new DateTimeImmutable( '@' . ( $timestamp ?? time() ) ) )->setTimezone( $zone )->format( $format );
+    // Like WordPress: an explicit $timezone wins, otherwise the site timezone.
+    function wp_date( string $format, ?int $timestamp = null, ?DateTimeZone $timezone = null ): string|false {
+        return ( new DateTimeImmutable( '@' . ( $timestamp ?? time() ) ) )
+            ->setTimezone( $timezone ?? wp_timezone() )
+            ->format( $format );
     }
 }
 
@@ -294,7 +301,7 @@ test_assert( [] === $GLOBALS['test_http_get_calls'], 'an order with no session i
 
 require_once dirname( __DIR__ ) . '/includes/class-oen-email-handler.php';
 
-$GLOBALS['test_timezone']                              = 'Asia/Taipei';
+$GLOBALS['test_options']['timezone_string']           = 'Asia/Taipei';
 $GLOBALS['test_options']['date_format']               = 'Y/m/d';
 $GLOBALS['test_options']['time_format']               = 'H:i';
 $GLOBALS['test_options']['oen_show_payment_in_email'] = 'yes';
@@ -303,11 +310,35 @@ test_assert(
     '2026/10/01 16:40' === OEN_Payment_Info::format_deadline( '2026-10-01T08:40:57.000Z' ),
     'a UTC deadline must be shown in the site timezone'
 );
+test_assert(
+    '2026/04/14 07:59' === OEN_Payment_Info::format_deadline( '2026-04-13T23:59:59Z' ),
+    'a UTC deadline that crosses midnight must be shown on the local date'
+);
+test_assert(
+    '2026/04/13 23:59' === OEN_Payment_Info::format_deadline( '2026-04-13T23:59:59+08:00' ),
+    'a deadline with an explicit offset must be shown in the site timezone'
+);
 test_assert( '' === OEN_Payment_Info::format_deadline( '' ), 'a missing deadline must stay empty' );
 test_assert(
     'not a date' === OEN_Payment_Info::format_deadline( 'not a date' ),
     'a deadline that does not parse must be shown as stored'
 );
+
+// Only a full date and time with a timezone names an instant. Anything else would be
+// read as UTC or relative to now and shown as a wrong deadline; a local time read as
+// UTC shows eight hours late, which tells the buyer they still have time when they
+// do not. Showing such a value as stored is the safer failure.
+foreach ( [
+    '2026-10-01 16:40:57'         => 'a deadline without a timezone',
+    '2026-10-01'                  => 'a date without a time',
+    '2026-10-01 +08:00'           => 'a date with an offset but no time',
+    '2026-02-30T00:00:00Z'        => 'a date that does not exist',
+    'now'                         => 'a relative time',
+    'tomorrow'                    => 'a relative day',
+    '2026-10-01T08:40:57Z +1 day' => 'an instant shifted by a relative time',
+] as $raw => $label ) {
+    test_assert( $raw === OEN_Payment_Info::format_deadline( $raw ), "{$label} must be shown as stored" );
+}
 
 $order = new Test_Payment_Info_Order(
     20,
