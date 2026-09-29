@@ -117,7 +117,7 @@
 | `Payment completed for order #…` | 已向應援確認付款並更新訂單 | 無須處理 |
 | `Invalid webhook signature`、`Missing OenPay-Signature header` | 應援通知的簽章驗證失敗 | 勾選「Re-register webhook」後儲存，重新同步簽章密鑰 |
 | `Expired webhook signature timestamp` | 伺服器時間和實際時間相差超過 300 秒 | 校正伺服器系統時間 |
-| `Session verification failed for order #…` | 外掛向應援查詢付款結果時連線失敗或逾時 | 確認網站能對外連線到應援。外掛不會變更訂單，並等待應援重送通知 |
+| `Session verification failed for order #…`、`API verification failed for order #…` | 外掛向應援查詢付款結果失敗：連線失敗、逾時，或應援拒絕查詢 | 確認網站能對外連線到應援。冒號後的訊息含 HTTP 401 時，確認 Secret Key 有效，且與「OEN 測試環境」的勾選屬於同一個環境。外掛不會變更訂單，並等待應援重送通知 |
 | `Order ID mismatch during …`、`Amount mismatch during …` | 應援查到的訂單編號或金額，與 WooCommerce 訂單不一致 | 檢查訂單建立後是否被改過金額；或這組應援憑證是否同時被其他網站（例如測試站）使用，通知屬於那個網站的訂單 |
 | `Order not found for OEN orderId: …` | 找不到對應的 WooCommerce 訂單 | 訂單可能已被刪除；或這組應援憑證同時被其他網站（例如測試站）使用，通知屬於那個網站的訂單 |
 | `Ignoring stale webhook for order #…` | 這是同一張訂單較早的付款嘗試（例如消費者改選了另一種應援付款方式） | 正常現象，無須處理 |
