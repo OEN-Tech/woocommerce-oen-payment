@@ -123,10 +123,10 @@
    1. 勾選「啟用 OEN 金流付款方式」。
    2. 勾選「OEN 測試環境」。
    3. 填入應援**測試環境**的「商店代碼」（應援後台的「網域名稱」）與「Secret Key」（在應援後台「總設定 › OenPay Embed」產生）。
-   4. 儲存。畫面出現「OEN webhook registered (…)」或「OEN webhook updated (…)」，代表外掛已連上應援，Webhook 與簽章密鑰都已自動設定。
+   4. 儲存。畫面出現「已註冊 OEN Webhook（…）」或「已更新 OEN Webhook（…）」，代表外掛已連上應援，Webhook 與簽章密鑰都已自動設定。
 3. 到 **WooCommerce › 設定 › 付款**，啟用「OEN 信用卡」「OEN 超商繳費」。
 4. 在應援測試環境各下一筆信用卡與超商繳費訂單，確認訂單狀態依[付款與訂單狀態](#付款與訂單狀態)更新。
-5. 正式上線：取消勾選「OEN 測試環境」，換成應援**正式環境**的商店代碼與 Secret Key，**勾選「Re-register webhook」**後儲存。
+5. 正式上線：取消勾選「OEN 測試環境」，換成應援**正式環境**的商店代碼與 Secret Key，**勾選「重新註冊 Webhook」**後儲存。
 
 每個步驟的操作畫面請見[設定教學](docs/setup-guide.md)。
 
@@ -144,7 +144,7 @@
 | 商店代碼 | 應援後台的「網域名稱」 |
 | Secret Key | 應援後台產生的 Secret Key |
 | Webhook Secret | Webhook 簽章密鑰，註冊時自動填入，請留空。沒有這個密鑰時，外掛不會接受應援的退款通知 |
-| Re-register webhook | 一次性勾選，儲存時重新註冊 Webhook 並換新簽章密鑰 |
+| 重新註冊 Webhook | 一次性勾選，儲存時重新註冊 Webhook 並換新簽章密鑰 |
 
 ### WooCommerce › 設定 › 付款 › OEN 信用卡／OEN 超商繳費
 
@@ -162,7 +162,7 @@
 | 測試 | `https://api.testing.oen.tw/api` | 勾選「OEN 測試環境」 |
 
 - 商店代碼與 Secret Key 皆為必填；任一為空時，結帳頁不會顯示應援付款方式。
-- 切換環境時，商店代碼與 Secret Key 要換成該環境的憑證，並勾選「Re-register webhook」重新註冊（Webhook 登記在當下所選的環境）。
+- 切換環境時，商店代碼與 Secret Key 要換成該環境的憑證，並勾選「重新註冊 Webhook」重新註冊（Webhook 登記在當下所選的環境）。
 - 使用應援測試環境前，請先向應援確認你的測試環境已開通 Hosted Checkout（應援付款頁）。
 
 ### Webhook（付款通知網址）
@@ -176,8 +176,8 @@ https://<你的網站>/?wc-api=oen_payment
 這個網址由 WordPress 的網站網址組成。網站網址若是內網位址或 `localhost`，應援就無法送達通知。
 
 - 第一次儲存設定時，外掛自動向應援註冊這個網址，並把簽章密鑰存入「Webhook Secret」。之後的一般儲存不會再註冊。
-- 切換環境或變更網站網址後，勾選「Re-register webhook」重新儲存。變更網址時，外掛會為新網址另外建立一筆 Webhook。
-- 註冊失敗時設定仍會儲存，並在設定頁顯示「OEN webhook auto-registration failed: …」。
+- 切換環境或變更網站網址後，勾選「重新註冊 Webhook」重新儲存。變更網址時，外掛會為新網址另外建立一筆 Webhook。
+- 註冊失敗時設定仍會儲存，並在設定頁顯示「OEN Webhook 自動註冊失敗：…」。
 - 外掛註冊的 Webhook 不會列在應援後台「OenPay Embed Webhook 健康狀態」的「已註冊的 Webhook」，那裡會顯示「尚未註冊 Webhook」。這不影響付款通知，也不需要在應援後台另外新增 Webhook。詳見 [FAQ](docs/faq.md#應援後台顯示尚未註冊-webhook)。
 
 ## 付款與訂單狀態
@@ -308,17 +308,17 @@ sequenceDiagram
 | 商店代碼（MerchantID） | `oen_merchant_id` |
 | Secret Key | `oen_api_token` |
 | Webhook Secret | `oen_webhook_secret` |
-| Re-register webhook | `oen_webhook_reregister` |
+| 重新註冊 Webhook | `oen_webhook_reregister` |
 
 ## Webhook 註冊與事件
 
 儲存 **WooCommerce › 設定 › OEN** 時，若主開關已開啟且商店代碼、Secret Key 已填寫：
 
-1. **首次儲存**：若應援上已有相同網址的 Webhook（例如先前手動建立），就沿用它、更新訂閱事件並換新簽章密鑰，顯示「OEN webhook updated (…) and its signing secret refreshed.」；否則建立新的 Webhook，顯示「OEN webhook registered (…). The signing secret was stored automatically.」。Webhook ID 與簽章密鑰會自動寫入設定。
+1. **首次儲存**：若應援上已有相同網址的 Webhook（例如先前手動建立），就沿用它、更新訂閱事件並換新簽章密鑰，顯示「已更新 OEN Webhook（…），並換新簽章密鑰。」；否則建立新的 Webhook，顯示「已註冊 OEN Webhook（…），簽章密鑰已自動儲存。」。Webhook ID 與簽章密鑰會自動寫入設定。
 2. **一般儲存**：已記錄 Webhook ID 時不再動作。
-3. **勾選「Re-register webhook」後儲存**：重新比對、更新並換新簽章密鑰。這個勾選只作用一次，儲存後自動取消。
+3. **勾選「重新註冊 Webhook」後儲存**：重新比對、更新並換新簽章密鑰。這個勾選只作用一次，儲存後自動取消。
 
-若「Webhook Secret」是手動填入、且沒有記錄 Webhook ID（舊版的安裝方式），一般儲存不會覆蓋，需勾選「Re-register webhook」才會改由外掛管理。
+若「Webhook Secret」是手動填入、且沒有記錄 Webhook ID（舊版的安裝方式），一般儲存不會覆蓋，需勾選「重新註冊 Webhook」才會改由外掛管理。
 
 訂閱的事件：
 

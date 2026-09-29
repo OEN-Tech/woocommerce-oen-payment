@@ -99,6 +99,7 @@ This plugin connects to OEN Payment, operated by Oen Tech (應援科技, https:/
 * Fix: switching payment method no longer blocks payment when the order total changes (for example, a different fee per payment method).
 * Fix: an OEN refund notification is no longer lost when an admin refund fails at the same time.
 * Fix: the CVS payment deadline is shown in the site's time zone and date/time format. Before, the UTC time from OEN was shown, eight hours early for Taiwan.
+* Translation: the Traditional Chinese (zh_TW) translation is complete. Before, a zh_TW site still showed English for the payment information, the "Re-register webhook" setting, webhook notices, order notes and OEN API errors.
 * Compatibility: tested up to WordPress 7.1 and WooCommerce 11.1.
 
 = 1.0.3 =

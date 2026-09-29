@@ -2,7 +2,7 @@
 
 本文件帶你從申請應援商店開始，一路完成取得憑證、安裝、連接應援、試收款，到正式上線。
 
-截圖取自實際操作（2026-09-29），包含應援後台、應援付款頁與 WooCommerce 後台。畫面中的網域名稱、交易編號、繳費代碼、Webhook ID 與買家資料都已換成示範值或遮蔽，金鑰欄位也已遮蔽。應援後台的畫面可能與你看到的略有不同。
+截圖取自實際操作（2026-09-29），包含應援後台、應援付款頁與 WooCommerce 後台。畫面中的網域名稱、交易編號、退款編號、繳費代碼、Webhook ID 與買家資料都已換成示範值或遮蔽，金鑰欄位也已遮蔽。應援後台的畫面可能與你看到的略有不同。
 
 - 外掛介紹與串接技術說明：[README](../README.md)
 - 常見問題：[faq.md](faq.md)
@@ -150,13 +150,13 @@
 儲存後，外掛會自動向應援註冊付款通知網址（Webhook）並保存簽章密鑰，**不需要到應援後台手動設定**。成功時畫面上方會出現：
 
 ```text
-OEN webhook registered (…). The signing secret was stored automatically.
+已註冊 OEN Webhook（…），簽章密鑰已自動儲存。
 ```
 
 如果應援上已經有同一個網址的 Webhook（例如以前手動建立的），外掛會沿用它、更新訂閱事件並換新簽章密鑰，這時顯示的是：
 
 ```text
-OEN webhook updated (…) and its signing secret refreshed.
+已更新 OEN Webhook（…），並換新簽章密鑰。
 ```
 
 同時「Webhook Secret」欄位會自動填入（顯示為遮罩）。
@@ -174,7 +174,7 @@ OEN webhook updated (…) and its signing secret refreshed.
 通知網址由 WordPress 的網站網址（**設定 › 一般**）組成。網站網址若是內網位址或 `localhost`，應援就無法送達通知；正式上線前請確認網站網址是從公網可以連線的網址。
 
 > **注意**
-> - 若出現「OEN webhook auto-registration failed: …」，代表設定已儲存，但外掛沒有連上應援完成註冊，請參考 [FAQ](faq.md#儲存設定時出現-oen-webhook-auto-registration-failed)。
+> - 若出現「OEN Webhook 自動註冊失敗：…」，代表設定已儲存，但外掛沒有連上應援完成註冊，請參考 [FAQ](faq.md#儲存設定時出現oen-webhook-自動註冊失敗)。
 > - 外掛註冊的 Webhook 不會列在應援後台「OenPay Embed Webhook 健康狀態」的「已註冊的 Webhook」，那裡會顯示「尚未註冊 Webhook，OenPay 事件無法送達您的系統。」。這不影響外掛接收付款通知，也不需要在應援後台另外「新增 Webhook」。詳見 [FAQ](faq.md#應援後台顯示尚未註冊-webhook)。
 
 ## 步驟 5：開啟應援付款方式
@@ -253,7 +253,7 @@ OEN webhook updated (…) and its signing secret refreshed.
 
 - 狀態為「處理中」。
 - 訂單標題下方顯示應援交易編號與付款時間。
-- 訂單備註出現「OEN Payment completed (verified). Transaction: …」，代表外掛已向應援確認付款。
+- 訂單備註出現「OEN 付款完成（已向 OEN 確認）。金流編號：…」，代表外掛已向應援確認付款。
 
 ![信用卡訂單](images/24-admin-order-card.png)
 
@@ -261,7 +261,7 @@ OEN webhook updated (…) and its signing secret refreshed.
 
 - 訂單建立後為「保留」，等待消費者繳費。
 - 外掛會在訂單進入保留後，約 1、4、14、44 分鐘各向應援查詢一次繳費代碼，共 4 次，取得後就停止。查詢由 WordPress 的排程（WP-Cron）執行，網站沒有人瀏覽時會延後。
-- 取得代碼後，帳單地址下方顯示「OEN payment code」（繳費代碼、超商、繳費期限），訂單備註出現「OEN payment code received: …」。繳費期限依網站的時區與日期、時間格式（**設定 › 一般**）顯示。
+- 取得代碼後，帳單地址下方顯示「OEN 繳費代碼」（繳費代碼、超商、繳費期限），訂單備註出現「已取得 OEN 繳費代碼：…」。繳費期限依網站的時區與日期、時間格式（**設定 › 一般**）顯示。
 - 已取得代碼的訂單，超過應援付款頁的付款時限後仍維持「保留」，消費者可以在繳費期限內繳費。
 - 消費者繳費後，應援通知外掛，訂單改為「處理中」。
 
@@ -269,7 +269,7 @@ OEN webhook updated (…) and its signing secret refreshed.
 
 ![超商繳費訂單](images/25-admin-order-cvs.png)
 
-消費者可在「已收到訂單」頁與「我的帳號 › 訂單」看到繳費代碼。訪客之後再開啟「已收到訂單」頁時，WooCommerce 會先要求輸入下單的 Email。勾選「在 Email 中顯示付款資訊」時，訂單通知信也會附上代碼。
+消費者可在「已收到訂單」頁與「我的帳號 › 訂單」的「付款資訊」看到繳費超商、繳費代碼與繳費期限。訪客之後再開啟「已收到訂單」頁時，WooCommerce 會先要求輸入下單的 Email。勾選「在 Email 中顯示付款資訊」時，訂單通知信也會附上代碼。
 
 ![消費者看到的繳費代碼](images/26-customer-cvs-code.png)
 
@@ -285,7 +285,7 @@ OEN webhook updated (…) and its signing secret refreshed.
 
 > **注意**：請不要按「手動退款」。手動退款只會在 WooCommerce 記錄退款，**不會**通知應援把款項退給消費者。
 
-應援確認退款後，訂單會出現退款項目與「已退費」金額，訂單備註出現「Refunded … via OEN (refund …)」。應援沒有確認退款成功時，WooCommerce 不會記錄這筆退款，並會顯示錯誤訊息。
+應援確認退款後，訂單會出現退款項目與「已退費」金額，訂單備註出現「已透過 OEN 退款 … 元（退款編號 …）。」。應援沒有確認退款成功時，WooCommerce 不會記錄這筆退款，並會顯示錯誤訊息。
 
 ![退款完成](images/28-refund-done.png)
 
@@ -321,21 +321,21 @@ OEN webhook updated (…) and its signing secret refreshed.
 
 1. 取消勾選「OEN 測試環境」。
 2. 將「商店代碼」與「Secret Key」換成應援**正式環境**的值（依[步驟 1](#步驟-1申請應援商店並取得憑證) 在正式環境的應援後台查看與產生）。
-3. 勾選「Re-register webhook」。
+3. 勾選「重新註冊 Webhook」。
 4. 按「儲存設定」，確認畫面出現 Webhook 註冊或更新成功的訊息。
 
 ![切換到應援正式環境](images/32-go-live-settings.png)
 
 > **注意**
-> - 一定要勾選「Re-register webhook」。一般儲存不會重新註冊 Webhook，應援正式環境的付款通知會送不到網站。
+> - 一定要勾選「重新註冊 Webhook」。一般儲存不會重新註冊 Webhook，應援正式環境的付款通知會送不到網站。
 > - 商店代碼與 Secret Key 要換成應援正式環境的憑證，和「OEN 測試環境」的勾選狀態對應。
-> - 「Re-register webhook」只作用一次，儲存後會自動取消勾選。
-> - 之後若變更網站網址，也要勾選「Re-register webhook」重新儲存，外掛會為新網址另外建立一筆 Webhook。舊網址的 Webhook 不會被外掛刪除，如需移除請洽應援。
+> - 「重新註冊 Webhook」只作用一次，儲存後會自動取消勾選。
+> - 之後若變更網站網址，也要勾選「重新註冊 Webhook」重新儲存，外掛會為新網址另外建立一筆 Webhook。舊網址的 Webhook 不會被外掛刪除，如需移除請洽應援。
 
 ## 上線確認清單
 
 - [ ] 「OEN 測試環境」已取消勾選，商店代碼與 Secret Key 都是應援正式環境的值。
-- [ ] 儲存後出現「OEN webhook registered (…)」或「OEN webhook updated (…)」。
+- [ ] 儲存後出現「已註冊 OEN Webhook（…）」或「已更新 OEN Webhook（…）」。
 - [ ] WordPress 的網站網址（**設定 › 一般**）是從公網可以連線的網址，建議使用 HTTPS（Webhook 通知網址由它組成）。
 - [ ] **WooCommerce › 狀態 › 已排程動作** 中沒有逾時未執行的 `oen_payment_info_sync`（超商繳費代碼需要排程）。
 - [ ] 退款都從 WooCommerce 發起（在應援後台退款不會同步到 WooCommerce）。

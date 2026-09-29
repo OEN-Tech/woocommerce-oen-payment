@@ -10,7 +10,7 @@
 - [設定頁找不到 OEN 分頁](#設定頁找不到-oen-分頁)
 - [需要到應援後台設定 Webhook 嗎？](#需要到應援後台設定-webhook-嗎)
 - [應援後台顯示「尚未註冊 Webhook」](#應援後台顯示尚未註冊-webhook)
-- [儲存設定時出現 OEN webhook auto-registration failed](#儲存設定時出現-oen-webhook-auto-registration-failed)
+- [儲存設定時出現「OEN Webhook 自動註冊失敗」](#儲存設定時出現oen-webhook-自動註冊失敗)
 - [切換正式環境或更改網址後，收不到應援的付款通知](#切換正式環境或更改網址後收不到應援的付款通知)
 - [Secret Key 外洩或需要更換怎麼辦？](#secret-key-外洩或需要更換怎麼辦)
 
@@ -48,12 +48,12 @@
 
 ### 需要到應援後台設定 Webhook 嗎？
 
-不需要。在 **WooCommerce › 設定 › OEN** 填好商店代碼與 Secret Key 並儲存後，外掛會自動向應援註冊付款通知網址 `https://你的網站/?wc-api=oen_payment`，並把簽章密鑰存進「Webhook Secret」。成功時畫面會出現「OEN webhook registered (…)」。
+不需要。在 **WooCommerce › 設定 › OEN** 填好商店代碼與 Secret Key 並儲存後，外掛會自動向應援註冊付款通知網址 `https://你的網站/?wc-api=oen_payment`，並把簽章密鑰存進「Webhook Secret」。成功時畫面會出現「已註冊 OEN Webhook（…）」。
 
 - Webhook 登記在儲存當下「OEN 測試環境」所選的環境。
 - 通知網址由 WordPress 的網站網址（**設定 › 一般**）組成，網站網址必須是應援能從公網連線的網址。
 
-第一次儲存或勾選「Re-register webhook」儲存時，如果應援上已經有同一個網址的 Webhook（例如先前手動建立的），外掛會沿用它、更新訂閱事件並換新簽章密鑰，不會重複建立，畫面顯示「OEN webhook updated (…)」。
+第一次儲存或勾選「重新註冊 Webhook」儲存時，如果應援上已經有同一個網址的 Webhook（例如先前手動建立的），外掛會沿用它、更新訂閱事件並換新簽章密鑰，不會重複建立，畫面顯示「已更新 OEN Webhook（…）」。
 
 ### 應援後台顯示「尚未註冊 Webhook」
 
@@ -61,20 +61,20 @@
 
 ![應援後台的 Webhook 健康狀態](images/faq-crm-webhook-health.png)
 
-- 請以外掛設定頁的「OEN webhook registered (…)」訊息，以及訂單是否自動改為「處理中」為準。
+- 請以外掛設定頁的「已註冊 OEN Webhook（…）」訊息，以及訂單是否自動改為「處理中」為準。
 - 不需要在應援後台按「新增 Webhook」。
 - 同一張卡片的「24h 成功」會計入外掛收到的通知；「投遞失敗事件」也會列出送達失敗的付款與退款通知，並提供「重發」按鈕。
 - 外掛的 Webhook 無法在應援後台停用或刪除，如需處理請洽應援。
 
-### 儲存設定時出現 OEN webhook auto-registration failed
+### 儲存設定時出現「OEN Webhook 自動註冊失敗」
 
 **原因**：設定已經儲存，但外掛沒有成功在應援註冊 Webhook。可能是 Secret Key 與「OEN 測試環境」的勾選狀態屬於不同環境（例如勾選測試環境，卻填了正式環境的 Secret Key），或網站無法對外連線到應援。錯誤訊息冒號後面會附上應援回傳的原因。
 
 **處理方式**：
 
 1. 確認「OEN 測試環境」的勾選狀態，和商店代碼、Secret Key 屬於同一個應援環境。
-2. 勾選「Re-register webhook」，再按「儲存設定」。
-3. 成功時會出現「OEN webhook registered (…)」或「OEN webhook updated (…)」。
+2. 勾選「重新註冊 Webhook」，再按「儲存設定」。
+3. 成功時會出現「已註冊 OEN Webhook（…）」或「已更新 OEN Webhook（…）」。
 
 問題仍然存在時，請聯絡[應援說明中心](https://oen.tw/support)確認憑證與帳號狀態。
 
@@ -82,14 +82,14 @@
 
 **原因**：一般儲存不會重新註冊 Webhook，應援仍把通知送到原本的環境或舊網址。
 
-**處理方式**：勾選「Re-register webhook」後按「儲存設定」。切換環境時，商店代碼與 Secret Key 要換成該環境的憑證。變更網址時，外掛會為新網址另外建立一筆 Webhook；舊網址的 Webhook 不會被外掛刪除，如需移除請洽應援。
+**處理方式**：勾選「重新註冊 Webhook」後按「儲存設定」。切換環境時，商店代碼與 Secret Key 要換成該環境的憑證。變更網址時，外掛會為新網址另外建立一筆 Webhook；舊網址的 Webhook 不會被外掛刪除，如需移除請洽應援。
 
 步驟請見[設定教學步驟 7](setup-guide.md#步驟-7切換到應援正式環境)。
 
 ### Secret Key 外洩或需要更換怎麼辦？
 
 1. 到應援後台 **總設定 › OenPay Embed › Embed API Key**（步驟同[設定教學步驟 1](setup-guide.md#產生-secret-key)）。**金鑰外洩時**，先按「撤銷」停用這個網域的金鑰，再按「產生金鑰」；只是例行更換時，按「重新產生金鑰」。撤銷後到填入新金鑰之前，外掛無法連線到應援。需要協助時請聯絡應援（[說明中心](https://oen.tw/support)或 [info@oen.tw](mailto:info@oen.tw)）。
-2. 到 **WooCommerce › 設定 › OEN** 填入新的 Secret Key，同時勾選「Re-register webhook」後儲存。外掛會替同一網址的 Webhook 換新簽章密鑰，並自動存入「Webhook Secret」。
+2. 到 **WooCommerce › 設定 › OEN** 填入新的 Secret Key，同時勾選「重新註冊 Webhook」後儲存。外掛會替同一網址的 Webhook 換新簽章密鑰，並自動存入「Webhook Secret」。
 
 ## 結帳與付款
 
@@ -115,7 +115,7 @@
 |---|---|---|
 | 完全沒有紀錄 | 應援的通知沒有送到網站 | 確認 WordPress 的網站網址（**設定 › 一般**）是公網可連線的網址；防火牆、CDN 或安全性外掛沒有擋下 `/?wc-api=oen_payment`；Webhook 是在目前使用的應援環境註冊的 |
 | `Payment completed for order #…` | 已向應援確認付款並更新訂單 | 無須處理 |
-| `Invalid webhook signature`、`Missing OenPay-Signature header` | 應援通知的簽章驗證失敗 | 勾選「Re-register webhook」後儲存，重新同步簽章密鑰 |
+| `Invalid webhook signature`、`Missing OenPay-Signature header` | 應援通知的簽章驗證失敗 | 勾選「重新註冊 Webhook」後儲存，重新同步簽章密鑰 |
 | `Expired webhook signature timestamp` | 伺服器時間和實際時間相差超過 300 秒 | 校正伺服器系統時間 |
 | `Session verification failed for order #…`、`API verification failed for order #…` | 外掛向應援查詢付款結果失敗：連線失敗、逾時，或應援拒絕查詢 | 確認網站能對外連線到應援。冒號後的訊息含 HTTP 401 時，確認 Secret Key 有效，且與「OEN 測試環境」的勾選屬於同一個環境。外掛不會變更訂單，並等待應援重送通知 |
 | `Order ID mismatch during …`、`Amount mismatch during …` | 應援查到的訂單編號或金額，與 WooCommerce 訂單不一致 | 檢查訂單建立後是否被改過金額；或這組應援憑證是否同時被其他網站（例如測試站）使用，通知屬於那個網站的訂單 |
