@@ -5,8 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WooCommerce OEN Payment Gateway 1.0.4\n"
 "Report-Msgid-Bugs-To: https://github.com/OEN-Tech/woocommerce-oen-payment/issues\n"
-"POT-Creation-Date: 2026-09-29T13:21:26+00:00\n"
-"PO-Revision-Date: 2026-09-29 14:00+0000\n"
+"POT-Creation-Date: 2026-09-30T01:19:23+00:00\n"
+"PO-Revision-Date: 2026-09-30 02:30+0000\n"
 "Last-Translator: OEN Technology <dev@oen.tw>\n"
 "Language-Team: Chinese (Taiwan)\n"
 "Language: zh_TW\n"
@@ -36,25 +36,25 @@ msgstr "OEN 金流付款外掛 — 支援信用卡、超商繳費付款方式"
 msgid "OEN Technology (應援科技)"
 msgstr "OEN Technology (應援科技)"
 
-#: includes/class-oen-api-client.php:52 includes/class-wc-gateway-oen.php:157
+#: includes/class-oen-api-client.php:51 includes/class-wc-gateway-oen.php:157
 msgid "OEN Payment API did not return a session id."
 msgstr "OEN 金流 API 沒有回傳付款 session ID。"
 
-#: includes/class-oen-api-client.php:262
+#: includes/class-oen-api-client.php:261
 msgid "OEN Payment is not configured. Please set MerchantID and Secret Key."
 msgstr "OEN 金流尚未設定，請填寫商店代碼與 Secret Key。"
 
-#: includes/class-oen-api-client.php:293
+#: includes/class-oen-api-client.php:292
 #, php-format
 msgid "OEN Payment API request failed: %s"
 msgstr "OEN 金流 API 請求失敗：%s"
 
-#: includes/class-oen-api-client.php:313
+#: includes/class-oen-api-client.php:312
 #, php-format
 msgid "OEN Payment API error [%1$s] (HTTP %2$d): %3$s"
 msgstr "OEN 金流 API 錯誤 [%1$s]（HTTP %2$d）：%3$s"
 
-#: includes/class-oen-api-client.php:323
+#: includes/class-oen-api-client.php:322
 msgid "OEN Payment API returned an unexpected response."
 msgstr "OEN 金流 API 回傳了無法辨識的回應。"
 
@@ -255,7 +255,7 @@ msgstr "儲存時重新註冊 OEN Webhook（更新通知網址與簽章密鑰）
 
 #: includes/class-oen-settings.php:95
 msgid "Tick this and save to (re)create the webhook on OEN. The plugin registers automatically on first save; use this after changing your site URL, MerchantID, or environment."
-msgstr "勾選後儲存，會在 OEN 重新建立 Webhook。外掛在第一次儲存時會自動註冊；變更網站網址、商店代碼或環境後，請使用這個選項。"
+msgstr "勾選後儲存，會重新向 OEN 註冊 Webhook（同一網址會沿用既有的 Webhook，並換新簽章密鑰）。外掛在第一次儲存時會自動註冊；變更網站網址、商店代碼或環境後，請使用這個選項。"
 
 #. translators: %s: error message
 #: includes/class-oen-settings.php:158
@@ -346,7 +346,7 @@ msgstr "找不到訂單。"
 
 #: includes/class-wc-gateway-oen.php:114
 msgid "Another OEN checkout attempt is already being prepared for this order. Please wait a moment and try again."
-msgstr "這張訂單正在建立另一筆 OEN 付款，請稍後再試。"
+msgstr "這張訂單的 OEN 付款正在準備中，請稍後再試。"
 
 #: includes/class-wc-gateway-oen.php:163
 msgid "OEN Payment API did not return a checkout URL."
@@ -366,7 +366,7 @@ msgstr "OEN 只支援信用卡付款的退款。"
 
 #: includes/class-wc-gateway-oen.php:258
 msgid "This order has no OEN session id, so it cannot be refunded through OEN."
-msgstr "這張訂單沒有 OEN 付款 session ID，無法透過 OEN 退款。"
+msgstr "這張訂單沒有對應的 OEN 付款紀錄，無法透過 OEN 退款。"
 
 #: includes/class-wc-gateway-oen.php:267
 msgid "Refund amount must be greater than zero."

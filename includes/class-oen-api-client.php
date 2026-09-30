@@ -4,9 +4,8 @@ defined( 'ABSPATH' ) || exit;
 
 class OEN_API_Client {
 
-    // The Hosted Checkout endpoints are served by PublicLambdaProxy, mounted at
-    // the `/api` stage path on the api.oen.tw HTTP API gateway. The `/api` prefix
-    // is required — without it requests 404 at the gateway.
+    // The Hosted Checkout endpoints live under the `/api` path prefix; without it
+    // requests return 404.
     private const PRODUCTION_API_URL = 'https://api.oen.tw/api';
     private const SANDBOX_API_URL    = 'https://api.testing.oen.tw/api';
 

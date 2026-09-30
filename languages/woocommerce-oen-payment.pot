@@ -9,7 +9,7 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-29T13:21:26+00:00\n"
+"POT-Creation-Date: 2026-09-30T01:19:23+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: woocommerce-oen-payment\n"
@@ -35,26 +35,26 @@ msgstr ""
 msgid "OEN Technology (應援科技)"
 msgstr ""
 
-#: includes/class-oen-api-client.php:52
+#: includes/class-oen-api-client.php:51
 #: includes/class-wc-gateway-oen.php:157
 msgid "OEN Payment API did not return a session id."
 msgstr ""
 
-#: includes/class-oen-api-client.php:262
+#: includes/class-oen-api-client.php:261
 msgid "OEN Payment is not configured. Please set MerchantID and Secret Key."
 msgstr ""
 
-#: includes/class-oen-api-client.php:293
+#: includes/class-oen-api-client.php:292
 #, php-format
 msgid "OEN Payment API request failed: %s"
 msgstr ""
 
-#: includes/class-oen-api-client.php:313
+#: includes/class-oen-api-client.php:312
 #, php-format
 msgid "OEN Payment API error [%1$s] (HTTP %2$d): %3$s"
 msgstr ""
 
-#: includes/class-oen-api-client.php:323
+#: includes/class-oen-api-client.php:322
 msgid "OEN Payment API returned an unexpected response."
 msgstr ""
 
