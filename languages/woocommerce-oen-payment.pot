@@ -1,211 +1,430 @@
-# Copyright (C) 2026 OEN Technology
+# Copyright (C) 2026 OEN Technology (應援科技)
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: WooCommerce OEN Payment Gateway 1.0.0\n"
-"Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-31 00:00+0000\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: \n"
-"Language-Team: \n"
-"Language: \n"
+"Project-Id-Version: WooCommerce OEN Payment Gateway 1.0.4\n"
+"Report-Msgid-Bugs-To: https://github.com/OEN-Tech/woocommerce-oen-payment/issues\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-09-30T01:19:23+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: woocommerce-oen-payment\n"
 
+#. Plugin Name of the plugin
 #: woocommerce-oen-payment.php
-msgid "WooCommerce OEN Payment Gateway requires WooCommerce to be installed and active."
+msgid "WooCommerce OEN Payment Gateway"
 msgstr ""
 
-#: includes/class-oen-settings.php
-msgid "OEN"
+#. Plugin URI of the plugin
+#. Author URI of the plugin
+#: woocommerce-oen-payment.php
+msgid "https://oen.tw"
 msgstr ""
 
-msgid "Enable OEN method"
+#. Description of the plugin
+#: woocommerce-oen-payment.php
+msgid "OEN 金流付款外掛 — 支援信用卡、超商繳費付款方式"
 msgstr ""
 
-msgid "Enable OEN gateway method"
+#. Author of the plugin
+#: woocommerce-oen-payment.php
+msgid "OEN Technology (應援科技)"
 msgstr ""
 
-msgid "Enable gateway method"
+#: includes/class-oen-api-client.php:51
+#: includes/class-wc-gateway-oen.php:157
+msgid "OEN Payment API did not return a session id."
 msgstr ""
 
-msgid "Gateway settings"
+#: includes/class-oen-api-client.php:261
+msgid "OEN Payment is not configured. Please set MerchantID and Secret Key."
 msgstr ""
 
-msgid "Order no prefix"
-msgstr ""
-
-msgid "Prefix prepended to the WooCommerce order ID when sent to OEN."
-msgstr ""
-
-msgid "Display order item name"
-msgstr ""
-
-msgid "Show payment info in email"
-msgstr ""
-
-msgid "Enabled payment shop email"
-msgstr ""
-
-msgid "API settings"
-msgstr ""
-
-msgid "OEN sandbox"
-msgstr ""
-
-msgid "sandbox"
-msgstr ""
-
-msgid "MerchantID"
-msgstr ""
-
-msgid "API Token"
-msgstr ""
-
-#: includes/class-wc-gateway-oen.php
-msgid "Enable/Disable"
-msgstr ""
-
-#. translators: %s: payment method title
-msgid "Enable %s"
-msgstr ""
-
-msgid "Title"
-msgstr ""
-
-msgid "Description"
-msgstr ""
-
-msgid "Order not found."
-msgstr ""
-
-#. translators: %s: site name
-msgid "%s Order"
-msgstr ""
-
-msgid "set"
-msgstr ""
-
-msgid "pc"
-msgstr ""
-
-msgid "Shipping"
-msgstr ""
-
-#: includes/class-wc-gateway-oen-credit.php
-msgid "OEN Credit"
-msgstr ""
-
-msgid "Pay with credit card via OEN Payment."
-msgstr ""
-
-#: includes/class-wc-gateway-oen-cvs.php
-msgid "OEN Cvs"
-msgstr ""
-
-msgid "Pay at convenience store via OEN Payment."
-msgstr ""
-
-#: includes/class-wc-gateway-oen-atm.php
-msgid "OEN ATM"
-msgstr ""
-
-msgid "Pay via ATM virtual account transfer via OEN Payment."
-msgstr ""
-
-#: includes/class-oen-api-client.php
-msgid "OEN Payment is not configured. Please set MerchantID and API Token."
-msgstr ""
-
-#. translators: %s: error message
+#: includes/class-oen-api-client.php:292
+#, php-format
 msgid "OEN Payment API request failed: %s"
 msgstr ""
 
-#. translators: 1: HTTP status code 2: response body
-msgid "OEN Payment API returned HTTP %1$d: %2$s"
+#: includes/class-oen-api-client.php:312
+#, php-format
+msgid "OEN Payment API error [%1$s] (HTTP %2$d): %3$s"
 msgstr ""
 
-#. translators: 1: error code 2: error message
-msgid "OEN Payment API error [%1$s]: %2$s"
+#: includes/class-oen-api-client.php:322
+msgid "OEN Payment API returned an unexpected response."
 msgstr ""
 
-#: includes/class-oen-webhook-handler.php
-#. translators: %s: OEN transaction HID
-msgid "OEN Payment completed. Transaction: %s"
-msgstr ""
-
-#. translators: %s: failure reason
-msgid "OEN Payment failed: %s"
-msgstr ""
-
-msgid "Payment failed."
-msgstr ""
-
-#: includes/class-oen-email-handler.php
+#: includes/class-oen-email-handler.php:58
+#: includes/class-oen-email-handler.php:110
 msgid "Payment Information"
 msgstr ""
 
+#: includes/class-oen-email-handler.php:63
 msgid "Transaction ID"
 msgstr ""
 
+#: includes/class-oen-email-handler.php:72
 msgid "Payment Time"
 msgstr ""
 
+#: includes/class-oen-email-handler.php:85
 msgid "Store"
 msgstr ""
 
+#: includes/class-oen-email-handler.php:91
 msgid "Payment Code"
 msgstr ""
 
+#: includes/class-oen-email-handler.php:97
 msgid "Payment Deadline"
 msgstr ""
 
 #. translators: %s: transaction HID
+#: includes/class-oen-email-handler.php:114
+#, php-format
 msgid "Transaction ID: %s"
 msgstr ""
 
 #. translators: %s: payment timestamp
+#: includes/class-oen-email-handler.php:119
+#, php-format
 msgid "Payment Time: %s"
 msgstr ""
 
 #. translators: %s: convenience store name
+#: includes/class-oen-email-handler.php:129
+#, php-format
 msgid "Store: %s"
 msgstr ""
 
 #. translators: %s: CVS payment code
+#: includes/class-oen-email-handler.php:132
+#, php-format
 msgid "Payment Code: %s"
 msgstr ""
 
 #. translators: %s: payment deadline
+#: includes/class-oen-email-handler.php:135
+#, php-format
 msgid "Payment Deadline: %s"
 msgstr ""
 
-#: includes/class-oen-error-handler.php
+#: includes/class-oen-error-handler.php:32
+#: includes/class-oen-error-handler.php:69
+msgid "Payment error. Please try again."
+msgstr ""
+
+#: includes/class-oen-error-handler.php:49
 msgid "Transaction failed, please try again."
 msgstr ""
 
+#: includes/class-oen-error-handler.php:50
 msgid "CVV/CVC verification error."
 msgstr ""
 
+#: includes/class-oen-error-handler.php:51
 msgid "Card expired."
 msgstr ""
 
+#: includes/class-oen-error-handler.php:52
 msgid "Insufficient credit limit."
 msgstr ""
 
+#: includes/class-oen-error-handler.php:53
 msgid "Payment refused."
 msgstr ""
 
+#: includes/class-oen-error-handler.php:54
 msgid "Request error, please contact merchant."
 msgstr ""
 
+#: includes/class-oen-error-handler.php:55
 msgid "Invalid transaction state."
 msgstr ""
 
+#: includes/class-oen-error-handler.php:56
 msgid "System error, please try again."
 msgstr ""
 
-#. translators: %s: error code
-msgid "Payment error (%s). Please try again."
+#. translators: %s: convenience store payment code
+#: includes/class-oen-payment-info-sync.php:107
+#, php-format
+msgid "OEN payment code received: %s"
+msgstr ""
+
+#: includes/class-oen-payment-info.php:169
+msgid "Payment information"
+msgstr ""
+
+#: includes/class-oen-payment-info.php:173
+msgid "Convenience store"
+msgstr ""
+
+#: includes/class-oen-payment-info.php:177
+msgid "Payment code"
+msgstr ""
+
+#: includes/class-oen-payment-info.php:181
+#: includes/class-oen-payment-info.php:213
+msgid "Pay before"
+msgstr ""
+
+#: includes/class-oen-payment-info.php:205
+msgid "OEN payment code"
+msgstr ""
+
+#: includes/class-oen-settings.php:9
+msgid "OEN"
+msgstr ""
+
+#: includes/class-oen-settings.php:16
+msgid "Enable OEN method"
+msgstr ""
+
+#: includes/class-oen-settings.php:21
+msgid "Enable OEN gateway method"
+msgstr ""
+
+#: includes/class-oen-settings.php:22
+msgid "Enable gateway method"
+msgstr ""
+
+#: includes/class-oen-settings.php:32
+msgid "Gateway settings"
+msgstr ""
+
+#: includes/class-oen-settings.php:37
+msgid "Order no prefix"
+msgstr ""
+
+#: includes/class-oen-settings.php:38
+msgid "Prefix prepended to the WooCommerce order ID when sent to OEN."
+msgstr ""
+
+#: includes/class-oen-settings.php:44
+#: includes/class-oen-settings.php:45
+msgid "Display order item name"
+msgstr ""
+
+#: includes/class-oen-settings.php:51
+msgid "Show payment info in email"
+msgstr ""
+
+#: includes/class-oen-settings.php:52
+msgid "Enabled payment shop email"
+msgstr ""
+
+#: includes/class-oen-settings.php:62
+msgid "API settings"
+msgstr ""
+
+#: includes/class-oen-settings.php:67
+msgid "OEN sandbox"
+msgstr ""
+
+#: includes/class-oen-settings.php:68
+msgid "sandbox"
+msgstr ""
+
+#: includes/class-oen-settings.php:74
+msgid "MerchantID"
+msgstr ""
+
+#: includes/class-oen-settings.php:80
+msgid "Secret Key"
+msgstr ""
+
+#: includes/class-oen-settings.php:86
+msgid "Webhook Secret"
+msgstr ""
+
+#: includes/class-oen-settings.php:87
+msgid "HMAC secret for webhook signature verification (OenPay-Signature header). Filled in automatically when the webhook is registered; leave empty to skip signature checks for checkout events (refund events always require it)."
+msgstr ""
+
+#: includes/class-oen-settings.php:93
+msgid "Re-register webhook"
+msgstr ""
+
+#: includes/class-oen-settings.php:94
+msgid "Re-register the OEN webhook on save (refreshes the URL and signing secret)."
+msgstr ""
+
+#: includes/class-oen-settings.php:95
+msgid "Tick this and save to (re)create the webhook on OEN. The plugin registers automatically on first save; use this after changing your site URL, MerchantID, or environment."
+msgstr ""
+
+#. translators: %s: error message
+#: includes/class-oen-settings.php:158
+#, php-format
+msgid "OEN webhook auto-registration failed: %s"
+msgstr ""
+
+#: includes/class-oen-settings.php:205
+msgid "OEN webhook registration returned an unexpected response (no id or secret)."
+msgstr ""
+
+#. translators: %s: webhook id
+#: includes/class-oen-settings.php:217
+#, php-format
+msgid "OEN webhook updated (%s) and its signing secret refreshed."
+msgstr ""
+
+#. translators: %s: webhook id
+#: includes/class-oen-settings.php:222
+#, php-format
+msgid "OEN webhook registered (%s). The signing secret was stored automatically."
+msgstr ""
+
+#. translators: %s: OEN refund id
+#: includes/class-oen-webhook-handler.php:286
+#, php-format
+msgid "OEN refund %s"
+msgstr ""
+
+#. translators: %s: OEN transaction HID
+#: includes/class-oen-webhook-handler.php:760
+#, php-format
+msgid "OEN Payment completed (verified). Transaction: %s"
+msgstr ""
+
+#. translators: %s: transaction status from API
+#: includes/class-oen-webhook-handler.php:785
+#, php-format
+msgid "OEN Payment failed (status: %s)"
+msgstr ""
+
+#: includes/class-wc-gateway-oen-atm.php:15
+msgid "OEN ATM"
+msgstr ""
+
+#: includes/class-wc-gateway-oen-atm.php:16
+msgid "Pay via ATM virtual account transfer via OEN Payment."
+msgstr ""
+
+#: includes/class-wc-gateway-oen-credit.php:15
+msgid "OEN Credit"
+msgstr ""
+
+#: includes/class-wc-gateway-oen-credit.php:16
+msgid "Pay with credit card via OEN Payment."
+msgstr ""
+
+#: includes/class-wc-gateway-oen-cvs.php:15
+msgid "OEN Cvs"
+msgstr ""
+
+#: includes/class-wc-gateway-oen-cvs.php:16
+msgid "Pay at convenience store via OEN Payment."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:56
+msgid "Enable/Disable"
+msgstr ""
+
+#. translators: %s: payment method title
+#: includes/class-wc-gateway-oen.php:60
+#, php-format
+msgid "Enable %s"
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:66
+msgid "Title"
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:71
+msgid "Description"
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:106
+#: includes/class-wc-gateway-oen.php:125
+#: includes/class-wc-gateway-oen.php:242
+msgid "Order not found."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:114
+msgid "Another OEN checkout attempt is already being prepared for this order. Please wait a moment and try again."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:163
+msgid "OEN Payment API did not return a checkout URL."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:198
+msgid "Awaiting OEN off-site payment."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:214
+msgid "Payment processing failed. Please try again or contact support."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:249
+msgid "OEN only supports refunds for credit card payments."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:258
+msgid "This order has no OEN session id, so it cannot be refunded through OEN."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:267
+msgid "Refund amount must be greater than zero."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:309
+msgid "OEN did not confirm the refund. The order was not marked as refunded."
+msgstr ""
+
+#. translators: 1: refund amount, 2: OEN refund id
+#: includes/class-wc-gateway-oen.php:323
+#, php-format
+msgid "Refunded %1$d via OEN (refund %2$s)."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:358
+msgid "We could not verify your existing OEN checkout session. Please try again in a moment."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:415
+msgid "Your existing OEN checkout session is still active, but its checkout URL is unavailable. Please try again in a moment."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:475
+msgid "The previous OEN checkout attempt for this order could not be cancelled after the payment method was changed. If it is still open in the buyer's browser it may result in a second payment — check for a duplicate before refunding."
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:586
+msgid "We could not safely verify your existing OEN checkout session. Please try again in a moment."
+msgstr ""
+
+#. translators: %s: site name
+#: includes/class-wc-gateway-oen.php:691
+#, php-format
+msgid "%s Order"
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:695
+#: includes/class-wc-gateway-oen.php:724
+#: includes/class-wc-gateway-oen.php:737
+#: includes/class-wc-gateway-oen.php:753
+msgid "set"
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:711
+msgid "pc"
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:735
+msgid "Shipping"
+msgstr ""
+
+#: includes/class-wc-gateway-oen.php:751
+msgid "Order adjustment"
+msgstr ""
+
+#: woocommerce-oen-payment.php:32
+msgid "WooCommerce OEN Payment Gateway requires WooCommerce to be installed and active."
 msgstr ""

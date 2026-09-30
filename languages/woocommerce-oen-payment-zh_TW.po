@@ -3,10 +3,10 @@
 # This file is distributed under the GPL-3.0-or-later.
 msgid ""
 msgstr ""
-"Project-Id-Version: WooCommerce OEN Payment Gateway 1.0.0\n"
-"Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-31 00:00+0000\n"
-"PO-Revision-Date: 2026-03-31 00:00+0800\n"
+"Project-Id-Version: WooCommerce OEN Payment Gateway 1.0.4\n"
+"Report-Msgid-Bugs-To: https://github.com/OEN-Tech/woocommerce-oen-payment/issues\n"
+"POT-Creation-Date: 2026-09-30T01:19:23+00:00\n"
+"PO-Revision-Date: 2026-09-30 02:30+0000\n"
 "Last-Translator: OEN Technology <dev@oen.tw>\n"
 "Language-Team: Chinese (Taiwan)\n"
 "Language: zh_TW\n"
@@ -15,176 +15,412 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
 
-msgid "WooCommerce OEN Payment Gateway requires WooCommerce to be installed and active."
-msgstr "WooCommerce OEN 金流付款外掛需要先安裝並啟用 WooCommerce。"
+#. Plugin Name of the plugin
+#: woocommerce-oen-payment.php
+msgid "WooCommerce OEN Payment Gateway"
+msgstr "WooCommerce OEN Payment Gateway"
 
-msgid "OEN"
-msgstr "OEN"
+#. Plugin URI of the plugin
+#. Author URI of the plugin
+#: woocommerce-oen-payment.php
+msgid "https://oen.tw"
+msgstr "https://oen.tw"
 
-msgid "Enable OEN method"
-msgstr "啟用 OEN 金流"
+#. Description of the plugin
+#: woocommerce-oen-payment.php
+msgid "OEN 金流付款外掛 — 支援信用卡、超商繳費付款方式"
+msgstr "OEN 金流付款外掛 — 支援信用卡、超商繳費付款方式"
 
-msgid "Enable OEN gateway method"
-msgstr "啟用 OEN 金流付款方式"
+#. Author of the plugin
+#: woocommerce-oen-payment.php
+msgid "OEN Technology (應援科技)"
+msgstr "OEN Technology (應援科技)"
 
-msgid "Enable gateway method"
-msgstr "啟用金流付款方式"
+#: includes/class-oen-api-client.php:51 includes/class-wc-gateway-oen.php:157
+msgid "OEN Payment API did not return a session id."
+msgstr "OEN 金流 API 沒有回傳付款 session ID。"
 
-msgid "Gateway settings"
-msgstr "金流設定"
+#: includes/class-oen-api-client.php:261
+msgid "OEN Payment is not configured. Please set MerchantID and Secret Key."
+msgstr "OEN 金流尚未設定，請填寫商店代碼與 Secret Key。"
 
-msgid "Order no prefix"
-msgstr "訂單編號前綴"
-
-msgid "Prefix prepended to the WooCommerce order ID when sent to OEN."
-msgstr "送至 OEN 時，加在 WooCommerce 訂單編號前面的前綴字。"
-
-msgid "Display order item name"
-msgstr "顯示訂單商品名稱"
-
-msgid "Show payment info in email"
-msgstr "在 Email 中顯示付款資訊"
-
-msgid "Enabled payment shop email"
-msgstr "在通知信中加入付款資訊"
-
-msgid "API settings"
-msgstr "API 設定"
-
-msgid "OEN sandbox"
-msgstr "OEN 測試環境"
-
-msgid "sandbox"
-msgstr "測試環境"
-
-msgid "MerchantID"
-msgstr "商店代碼"
-
-msgid "API Token"
-msgstr "API 金鑰"
-
-msgid "Enable/Disable"
-msgstr "啟用/停用"
-
-msgid "Enable %s"
-msgstr "啟用 %s"
-
-msgid "Title"
-msgstr "標題"
-
-msgid "Description"
-msgstr "說明"
-
-msgid "Order not found."
-msgstr "找不到訂單。"
-
-msgid "%s Order"
-msgstr "%s 訂單"
-
-msgid "set"
-msgstr "組"
-
-msgid "pc"
-msgstr "件"
-
-msgid "Shipping"
-msgstr "運費"
-
-msgid "OEN Credit"
-msgstr "OEN 信用卡"
-
-msgid "Pay with credit card via OEN Payment."
-msgstr "使用應援科技信用卡付款。"
-
-msgid "OEN Cvs"
-msgstr "OEN 超商繳費"
-
-msgid "Pay at convenience store via OEN Payment."
-msgstr "使用應援科技超商代碼繳費。"
-
-msgid "OEN ATM"
-msgstr "OEN 虛擬帳號轉帳"
-
-msgid "Pay via ATM virtual account transfer via OEN Payment."
-msgstr "使用應援科技 ATM 虛擬帳號轉帳付款。"
-
-msgid "OEN Payment is not configured. Please set MerchantID and API Token."
-msgstr "OEN 金流尚未設定，請先設定商店代碼與 API 金鑰。"
-
+#: includes/class-oen-api-client.php:292
+#, php-format
 msgid "OEN Payment API request failed: %s"
 msgstr "OEN 金流 API 請求失敗：%s"
 
-msgid "OEN Payment API returned HTTP %1$d: %2$s"
-msgstr "OEN 金流 API 回傳 HTTP %1$d：%2$s"
+#: includes/class-oen-api-client.php:312
+#, php-format
+msgid "OEN Payment API error [%1$s] (HTTP %2$d): %3$s"
+msgstr "OEN 金流 API 錯誤 [%1$s]（HTTP %2$d）：%3$s"
 
-msgid "OEN Payment API error [%1$s]: %2$s"
-msgstr "OEN 金流 API 錯誤 [%1$s]：%2$s"
+#: includes/class-oen-api-client.php:322
+msgid "OEN Payment API returned an unexpected response."
+msgstr "OEN 金流 API 回傳了無法辨識的回應。"
 
-msgid "OEN Payment completed. Transaction: %s"
-msgstr "OEN 金流付款完成。交易編號：%s"
-
-msgid "OEN Payment failed: %s"
-msgstr "OEN 金流付款失敗：%s"
-
-msgid "Payment failed."
-msgstr "付款失敗。"
-
+#: includes/class-oen-email-handler.php:58
+#: includes/class-oen-email-handler.php:110
 msgid "Payment Information"
 msgstr "付款資訊"
 
+#: includes/class-oen-email-handler.php:63
 msgid "Transaction ID"
 msgstr "金流編號"
 
+#: includes/class-oen-email-handler.php:72
 msgid "Payment Time"
 msgstr "付款時間"
 
+#: includes/class-oen-email-handler.php:85
 msgid "Store"
 msgstr "繳費超商"
 
+#: includes/class-oen-email-handler.php:91
 msgid "Payment Code"
 msgstr "繳費代碼"
 
+#: includes/class-oen-email-handler.php:97
 msgid "Payment Deadline"
 msgstr "繳費期限"
 
+#. translators: %s: transaction HID
+#: includes/class-oen-email-handler.php:114
+#, php-format
 msgid "Transaction ID: %s"
 msgstr "金流編號：%s"
 
+#. translators: %s: payment timestamp
+#: includes/class-oen-email-handler.php:119
+#, php-format
 msgid "Payment Time: %s"
 msgstr "付款時間：%s"
 
+#. translators: %s: convenience store name
+#: includes/class-oen-email-handler.php:129
+#, php-format
 msgid "Store: %s"
 msgstr "繳費超商：%s"
 
+#. translators: %s: CVS payment code
+#: includes/class-oen-email-handler.php:132
+#, php-format
 msgid "Payment Code: %s"
 msgstr "繳費代碼：%s"
 
+#. translators: %s: payment deadline
+#: includes/class-oen-email-handler.php:135
+#, php-format
 msgid "Payment Deadline: %s"
 msgstr "繳費期限：%s"
 
+#: includes/class-oen-error-handler.php:32
+#: includes/class-oen-error-handler.php:69
+msgid "Payment error. Please try again."
+msgstr "付款發生錯誤，請再試一次。"
+
+#: includes/class-oen-error-handler.php:49
 msgid "Transaction failed, please try again."
 msgstr "交易失敗，請稍後再試。"
 
+#: includes/class-oen-error-handler.php:50
 msgid "CVV/CVC verification error."
 msgstr "CVV/CVC 驗證錯誤。"
 
+#: includes/class-oen-error-handler.php:51
 msgid "Card expired."
 msgstr "信用卡已過期。"
 
+#: includes/class-oen-error-handler.php:52
 msgid "Insufficient credit limit."
 msgstr "信用額度不足。"
 
+#: includes/class-oen-error-handler.php:53
 msgid "Payment refused."
 msgstr "付款遭拒絕。"
 
+#: includes/class-oen-error-handler.php:54
 msgid "Request error, please contact merchant."
 msgstr "請求錯誤，請聯繫商家。"
 
+#: includes/class-oen-error-handler.php:55
 msgid "Invalid transaction state."
 msgstr "交易狀態異常。"
 
+#: includes/class-oen-error-handler.php:56
 msgid "System error, please try again."
 msgstr "系統錯誤，請稍後再試。"
 
-msgid "Payment error (%s). Please try again."
-msgstr "付款錯誤（%s），請再試一次。"
+#. translators: %s: convenience store payment code
+#: includes/class-oen-payment-info-sync.php:107
+#, php-format
+msgid "OEN payment code received: %s"
+msgstr "已取得 OEN 繳費代碼：%s"
+
+#: includes/class-oen-payment-info.php:169
+msgid "Payment information"
+msgstr "付款資訊"
+
+#: includes/class-oen-payment-info.php:173
+msgid "Convenience store"
+msgstr "繳費超商"
+
+#: includes/class-oen-payment-info.php:177
+msgid "Payment code"
+msgstr "繳費代碼"
+
+#: includes/class-oen-payment-info.php:181
+#: includes/class-oen-payment-info.php:213
+msgid "Pay before"
+msgstr "繳費期限"
+
+#: includes/class-oen-payment-info.php:205
+msgid "OEN payment code"
+msgstr "OEN 繳費代碼"
+
+#: includes/class-oen-settings.php:9
+msgid "OEN"
+msgstr "OEN"
+
+#: includes/class-oen-settings.php:16
+msgid "Enable OEN method"
+msgstr "啟用 OEN 金流"
+
+#: includes/class-oen-settings.php:21
+msgid "Enable OEN gateway method"
+msgstr "啟用 OEN 金流付款方式"
+
+#: includes/class-oen-settings.php:22
+msgid "Enable gateway method"
+msgstr "啟用金流付款方式"
+
+#: includes/class-oen-settings.php:32
+msgid "Gateway settings"
+msgstr "金流設定"
+
+#: includes/class-oen-settings.php:37
+msgid "Order no prefix"
+msgstr "訂單編號前綴"
+
+#: includes/class-oen-settings.php:38
+msgid "Prefix prepended to the WooCommerce order ID when sent to OEN."
+msgstr "送至 OEN 時，加在 WooCommerce 訂單 ID 前面的前綴字。"
+
+#: includes/class-oen-settings.php:44 includes/class-oen-settings.php:45
+msgid "Display order item name"
+msgstr "顯示訂單商品名稱"
+
+#: includes/class-oen-settings.php:51
+msgid "Show payment info in email"
+msgstr "在 Email 中顯示付款資訊"
+
+#: includes/class-oen-settings.php:52
+msgid "Enabled payment shop email"
+msgstr "在通知信中加入付款資訊"
+
+#: includes/class-oen-settings.php:62
+msgid "API settings"
+msgstr "API 設定"
+
+#: includes/class-oen-settings.php:67
+msgid "OEN sandbox"
+msgstr "OEN 測試環境"
+
+#: includes/class-oen-settings.php:68
+msgid "sandbox"
+msgstr "測試環境"
+
+#: includes/class-oen-settings.php:74
+msgid "MerchantID"
+msgstr "商店代碼"
+
+#: includes/class-oen-settings.php:80
+msgid "Secret Key"
+msgstr "Secret Key"
+
+#: includes/class-oen-settings.php:86
+msgid "Webhook Secret"
+msgstr "Webhook Secret"
+
+#: includes/class-oen-settings.php:87
+msgid "HMAC secret for webhook signature verification (OenPay-Signature header). Filled in automatically when the webhook is registered; leave empty to skip signature checks for checkout events (refund events always require it)."
+msgstr "驗證 Webhook 簽章（OenPay-Signature header）用的密鑰。註冊 Webhook 時會自動填入；留空時不檢查付款事件的簽章（退款事件一律需要）。"
+
+#: includes/class-oen-settings.php:93
+msgid "Re-register webhook"
+msgstr "重新註冊 Webhook"
+
+#: includes/class-oen-settings.php:94
+msgid "Re-register the OEN webhook on save (refreshes the URL and signing secret)."
+msgstr "儲存時重新註冊 OEN Webhook（更新通知網址與簽章密鑰）。"
+
+#: includes/class-oen-settings.php:95
+msgid "Tick this and save to (re)create the webhook on OEN. The plugin registers automatically on first save; use this after changing your site URL, MerchantID, or environment."
+msgstr "勾選後儲存，會重新向 OEN 註冊 Webhook（同一網址會沿用既有的 Webhook，並換新簽章密鑰）。外掛在第一次儲存時會自動註冊；變更網站網址、商店代碼或環境後，請使用這個選項。"
+
+#. translators: %s: error message
+#: includes/class-oen-settings.php:158
+#, php-format
+msgid "OEN webhook auto-registration failed: %s"
+msgstr "OEN Webhook 自動註冊失敗：%s"
+
+#: includes/class-oen-settings.php:205
+msgid "OEN webhook registration returned an unexpected response (no id or secret)."
+msgstr "OEN Webhook 註冊的回應無法辨識（缺少 ID 或簽章密鑰）。"
+
+#. translators: %s: webhook id
+#: includes/class-oen-settings.php:217
+#, php-format
+msgid "OEN webhook updated (%s) and its signing secret refreshed."
+msgstr "已更新 OEN Webhook（%s），並換新簽章密鑰。"
+
+#. translators: %s: webhook id
+#: includes/class-oen-settings.php:222
+#, php-format
+msgid "OEN webhook registered (%s). The signing secret was stored automatically."
+msgstr "已註冊 OEN Webhook（%s），簽章密鑰已自動儲存。"
+
+#. translators: %s: OEN refund id
+#: includes/class-oen-webhook-handler.php:286
+#, php-format
+msgid "OEN refund %s"
+msgstr "OEN 退款 %s"
+
+#. translators: %s: OEN transaction HID
+#: includes/class-oen-webhook-handler.php:760
+#, php-format
+msgid "OEN Payment completed (verified). Transaction: %s"
+msgstr "OEN 付款完成（已向 OEN 確認）。金流編號：%s"
+
+#. translators: %s: transaction status from API
+#: includes/class-oen-webhook-handler.php:785
+#, php-format
+msgid "OEN Payment failed (status: %s)"
+msgstr "OEN 付款失敗（狀態：%s）"
+
+#: includes/class-wc-gateway-oen-atm.php:15
+msgid "OEN ATM"
+msgstr "OEN 虛擬帳號轉帳"
+
+#: includes/class-wc-gateway-oen-atm.php:16
+msgid "Pay via ATM virtual account transfer via OEN Payment."
+msgstr "使用應援科技 ATM 虛擬帳號轉帳付款。"
+
+#: includes/class-wc-gateway-oen-credit.php:15
+msgid "OEN Credit"
+msgstr "OEN 信用卡"
+
+#: includes/class-wc-gateway-oen-credit.php:16
+msgid "Pay with credit card via OEN Payment."
+msgstr "使用應援科技信用卡付款。"
+
+#: includes/class-wc-gateway-oen-cvs.php:15
+msgid "OEN Cvs"
+msgstr "OEN 超商繳費"
+
+#: includes/class-wc-gateway-oen-cvs.php:16
+msgid "Pay at convenience store via OEN Payment."
+msgstr "使用應援科技超商代碼繳費。"
+
+#: includes/class-wc-gateway-oen.php:56
+msgid "Enable/Disable"
+msgstr "啟用/停用"
+
+#. translators: %s: payment method title
+#: includes/class-wc-gateway-oen.php:60
+#, php-format
+msgid "Enable %s"
+msgstr "啟用 %s"
+
+#: includes/class-wc-gateway-oen.php:66
+msgid "Title"
+msgstr "標題"
+
+#: includes/class-wc-gateway-oen.php:71
+msgid "Description"
+msgstr "說明"
+
+#: includes/class-wc-gateway-oen.php:106 includes/class-wc-gateway-oen.php:125
+#: includes/class-wc-gateway-oen.php:242
+msgid "Order not found."
+msgstr "找不到訂單。"
+
+#: includes/class-wc-gateway-oen.php:114
+msgid "Another OEN checkout attempt is already being prepared for this order. Please wait a moment and try again."
+msgstr "這張訂單的 OEN 付款正在準備中，請稍後再試。"
+
+#: includes/class-wc-gateway-oen.php:163
+msgid "OEN Payment API did not return a checkout URL."
+msgstr "OEN 金流 API 沒有回傳付款頁網址。"
+
+#: includes/class-wc-gateway-oen.php:198
+msgid "Awaiting OEN off-site payment."
+msgstr "等待消費者完成 OEN 繳費。"
+
+#: includes/class-wc-gateway-oen.php:214
+msgid "Payment processing failed. Please try again or contact support."
+msgstr "付款處理失敗，請再試一次或聯絡客服。"
+
+#: includes/class-wc-gateway-oen.php:249
+msgid "OEN only supports refunds for credit card payments."
+msgstr "OEN 只支援信用卡付款的退款。"
+
+#: includes/class-wc-gateway-oen.php:258
+msgid "This order has no OEN session id, so it cannot be refunded through OEN."
+msgstr "這張訂單沒有對應的 OEN 付款紀錄，無法透過 OEN 退款。"
+
+#: includes/class-wc-gateway-oen.php:267
+msgid "Refund amount must be greater than zero."
+msgstr "退款金額必須大於 0。"
+
+#: includes/class-wc-gateway-oen.php:309
+msgid "OEN did not confirm the refund. The order was not marked as refunded."
+msgstr "OEN 沒有確認這筆退款，訂單未標記為已退款。"
+
+#. translators: 1: refund amount, 2: OEN refund id
+#: includes/class-wc-gateway-oen.php:323
+#, php-format
+msgid "Refunded %1$d via OEN (refund %2$s)."
+msgstr "已透過 OEN 退款 %1$d 元（退款編號 %2$s）。"
+
+#: includes/class-wc-gateway-oen.php:358
+msgid "We could not verify your existing OEN checkout session. Please try again in a moment."
+msgstr "無法確認這張訂單目前的 OEN 付款，請稍後再試。"
+
+#: includes/class-wc-gateway-oen.php:415
+msgid "Your existing OEN checkout session is still active, but its checkout URL is unavailable. Please try again in a moment."
+msgstr "這張訂單的 OEN 付款仍在進行中，但暫時取不到付款頁網址，請稍後再試。"
+
+#: includes/class-wc-gateway-oen.php:475
+msgid "The previous OEN checkout attempt for this order could not be cancelled after the payment method was changed. If it is still open in the buyer's browser it may result in a second payment — check for a duplicate before refunding."
+msgstr "改選付款方式後，無法取消這張訂單先前的 OEN 付款。消費者的瀏覽器若仍開著舊的付款頁，可能會付款兩次；退款前請先確認是否重複付款。"
+
+#: includes/class-wc-gateway-oen.php:586
+msgid "We could not safely verify your existing OEN checkout session. Please try again in a moment."
+msgstr "無法安全確認這張訂單目前的 OEN 付款，請稍後再試。"
+
+#. translators: %s: site name
+#: includes/class-wc-gateway-oen.php:691
+#, php-format
+msgid "%s Order"
+msgstr "%s 訂單"
+
+#: includes/class-wc-gateway-oen.php:695 includes/class-wc-gateway-oen.php:724
+#: includes/class-wc-gateway-oen.php:737 includes/class-wc-gateway-oen.php:753
+msgid "set"
+msgstr "組"
+
+#: includes/class-wc-gateway-oen.php:711
+msgid "pc"
+msgstr "件"
+
+#: includes/class-wc-gateway-oen.php:735
+msgid "Shipping"
+msgstr "運費"
+
+#: includes/class-wc-gateway-oen.php:751
+msgid "Order adjustment"
+msgstr "訂單調整"
+
+#: woocommerce-oen-payment.php:32
+msgid "WooCommerce OEN Payment Gateway requires WooCommerce to be installed and active."
+msgstr "WooCommerce OEN 金流付款外掛需要先安裝並啟用 WooCommerce。"
