@@ -19,13 +19,13 @@ OEN Payment Gateway connects your WooCommerce store to OEN Payment (應援金流
 Payment methods:
 
 * **OEN Credit** — credit card on the OEN hosted payment page. Full and partial refunds from the WooCommerce order screen.
-* **OEN Cvs** — convenience store payment code. The code is shown to the buyer, on the admin order screen, and optionally in order emails. Refunds are not supported.
+* **OEN Cvs** — convenience store payment code. The code is shown to the buyer and on the admin order screen. It can also appear in order emails that are sent after the code is issued. Refunds are not supported.
 
 Features:
 
 * Registers its webhook with OEN automatically when you save the settings. You do not set up anything in the OEN back office.
 * Confirms every payment notification with OEN before it changes an order. The order number and the amount must match.
-* Reuses the same OEN payment when a buyer submits checkout again. When the buyer switches between OEN Credit and OEN Cvs, the plugin creates a new OEN payment and cancels the old one.
+* Reuses the same OEN payment when a buyer submits checkout again. When a buyer goes back from OEN Credit and picks OEN Cvs for the same order, the plugin creates a new OEN payment and cancels the old one.
 * Switch between the OEN test and production environments.
 * Classic checkout and Cart & Checkout Blocks. Compatible with WooCommerce HPOS.
 * English interface with a Traditional Chinese (zh_TW) translation.
@@ -40,7 +40,7 @@ Setup guide with screenshots (Traditional Chinese): https://github.com/OEN-Tech/
 
 == Installation ==
 
-1. Upload the `woocommerce-oen-payment` folder to `/wp-content/plugins/`, or upload the plugin ZIP in Plugins › Add New › Upload Plugin. The folder name must be `woocommerce-oen-payment`.
+1. Upload the `woocommerce-oen-payment` folder to `/wp-content/plugins/`, or upload the plugin ZIP in Plugins › Add New › Upload Plugin. The folder name must be `woocommerce-oen-payment`, and the ZIP must contain that folder at its top level. To update, upload the new ZIP the same way and choose "Replace current with uploaded".
 2. Activate the plugin. WooCommerce must be active.
 3. In WooCommerce › Settings › General, set the currency to New Taiwan Dollar (TWD) and the number of decimals to 0.
 4. In the OEN back office, find your domain name under 總設定 › Oen 服務資訊 (this is the plugin's MerchantID), and generate a Secret Key under 總設定 › OenPay Embed › Embed API Key. The Secret Key is shown only once.
@@ -63,7 +63,7 @@ Tick "Re-register webhook" and save. When you switch environment, also enter tha
 
 = Why is a CVS order "On hold"? =
 
-The buyer pays later at the convenience store, so the order waits for OEN's payment notification. WooCommerce's "Hold stock" setting cancels only "Pending payment" orders, so CVS orders are not cancelled by it. A CVS order that already has a payment code stays "On hold" after the hosted page time limit; the buyer can pay until the payment deadline.
+The buyer pays later at the convenience store, so the order waits for OEN's payment notification. WooCommerce's "Hold stock" setting cancels only "Pending payment" orders, so CVS orders are not cancelled by it. When the hosted page time limit passes, OEN does not send an expiry notice for a payment that already has a payment code, so such an order stays "On hold" and the buyer can pay until the payment deadline.
 
 = The CVS payment code is not shown =
 
@@ -75,7 +75,7 @@ On a credit card order, use the refund button "via OEN Credit". Do not use "Refu
 
 = I refunded in the OEN back office. Does WooCommerce update? =
 
-No. Record the refund in WooCommerce with "Refund manually" and the same amount. Do not also refund "via OEN Credit": OEN may reject it, or it may refund the buyer again. Start refunds from WooCommerce so both records match.
+No. First check that the order does not already show this refund. Then record it in WooCommerce with "Refund manually" and the same amount. Do not also refund "via OEN Credit": OEN may reject it, or it may refund the buyer again. Start refunds from WooCommerce so both records match.
 
 = My Secret Key leaked =
 
@@ -95,11 +95,11 @@ This plugin connects to OEN Payment, operated by Oen Tech (應援科技, https:/
 == Changelog ==
 
 = 1.0.4 =
-* Fix: when a buyer goes back and switches to the other OEN payment method, the plugin creates a new OEN payment and cancels the old one. Before, the buyer was sent back to the payment method they had left.
+* Fix: when a buyer goes back from OEN Credit and picks OEN Cvs for the same order, the plugin creates a new OEN payment and cancels the old one. Before, the buyer was sent back to the payment method they had left. If the old OEN payment cannot be cancelled, an order note asks the merchant to check for a duplicate payment before refunding.
 * Fix: switching payment method no longer blocks payment when the order total changes (for example, a different fee per payment method).
-* Fix: an OEN refund notification is no longer lost when an admin refund fails at the same time.
+* Fix: an OEN refund notification is no longer lost when an admin refund fails at the same time. After a refund from WooCommerce, the OEN back office may list one failed delivery (HTTP 409) of that refund notification; no action is needed.
 * Fix: the CVS payment deadline is shown in the site's time zone and date/time format. Before, the UTC time from OEN was shown, eight hours early for Taiwan.
-* Translation: the Traditional Chinese (zh_TW) translation is complete. Before, a zh_TW site still showed English for the payment information, the "Re-register webhook" setting, webhook notices, order notes, checkout and refund errors, and OEN API errors.
+* Translation: the Traditional Chinese (zh_TW) translation is complete. Before, a zh_TW site still showed English for the payment information, the "Re-register webhook" and "Webhook Secret" setting texts, webhook notices, order notes, checkout and refund errors, and OEN API errors. The rounding line item sent to OEN is now named 「訂單調整」 on zh_TW sites.
 * Compatibility: tested up to WordPress 7.1 and WooCommerce 11.1.
 
 = 1.0.3 =
