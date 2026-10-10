@@ -1,0 +1,36 @@
+# Findings that predate PHPStan in this repository and are intentional, or come from
+# stubs that are less precise than the code. Each entry says why it is accepted.
+#
+# Every entry is scoped to one file and one kind of finding, so the same kind of problem
+# anywhere else is still reported. PHPStan fails the run when an entry no longer matches
+# anything, so delete an entry as soon as the code it covers stops producing the finding.
+parameters:
+    ignoreErrors:
+        # wp_send_json() ends the request, so the defensive `return;` that the webhook
+        # handler keeps after each call can never run.
+        -
+            identifier: deadCode.unreachable
+            path: includes/class-oen-webhook-handler.php
+        # WooCommerce's own pattern: process_admin_options() is hooked as an action
+        # callback and the hook ignores its boolean result.
+        -
+            identifier: return.void
+            path: includes/class-wc-gateway-oen.php
+        # process_payment() documents a required `redirect` key, but every failure path
+        # returns only `result`, which is what WooCommerce expects for a failed payment.
+        -
+            identifier: return.type
+            message: '#^Method WC_Gateway_OEN::process_payment\(\) should return array\{result: string, redirect: string\} but returns array\{result: ''failure''\}\.$#'
+            path: includes/class-wc-gateway-oen.php
+        # Defensive guard in normalize_session_status() for the case where the webhook
+        # handler class has not been loaded yet.
+        -
+            identifier: function.alreadyNarrowedType
+            message: '#^Call to function method_exists\(\) with ''OEN_Webhook_Handler'' and .* will always evaluate to true\.$#'
+            path: includes/class-wc-gateway-oen.php
+        # WC_Order::get_items() returns product line items by default, but the WooCommerce
+        # stubs only declare the WC_Order_Item base class for the loop variable.
+        -
+            identifier: method.notFound
+            message: '#^Call to an undefined method WC_Order_Item::(get_product|get_product_id)\(\)\.$#'
+            path: includes/class-wc-gateway-oen.php

@@ -39,6 +39,23 @@ organisation's network does not belong in this repository at all; keep that tool
 Both layers must stay runnable by anyone who clones this repository. Harnesses that require
 private endpoints, credentials, or a specific operator's machine are kept outside this repo.
 
+## Static analysis and CI
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`:
+
+- `unit` — a PHP syntax check and `tests/run-unit.sh` on PHP 8.1 to 8.5 (8.1 is the minimum in
+  the plugin header).
+- `static-analysis` — PHPStan at level 5 (`phpstan.neon.dist`) and PHP_CodeSniffer
+  (`phpcs.xml.dist`: WordPress-Extra without the formatting sniffs this code base does not follow,
+  plus PHP 8.1+ compatibility).
+- `runtime` — the dockerised harness in `tests/runtime/`.
+
+Run the static checks locally with `composer install`, then `composer analyse` and `composer lint`.
+`composer.lock` is committed so CI and local runs use the same tool versions; change it only in a
+pull request that is about the tools. When a finding is intentional, silence it as narrowly as
+possible and say why: a scoped, commented entry in the config file, or an inline `phpcs:ignore`
+with a reason. Do not widen a config exclusion to make a check pass.
+
 ## Releasing
 
 A release is the tag `vX.Y.Z` on `main` plus its GitHub Release. Every release PR updates all

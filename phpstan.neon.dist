@@ -1,0 +1,23 @@
+# PHPStan configuration for the plugin source. Run with `composer analyse`.
+#
+# The WordPress extension (szepeviktor/phpstan-wordpress) is loaded automatically by
+# phpstan/extension-installer. WooCommerce has no extension, only declaration stubs.
+includes:
+    # Accepted findings, each with its reason.
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+    # The plugin header declares PHP 8.1 as the minimum, so analyse against that version.
+    phpVersion: 80100
+    paths:
+        - woocommerce-oen-payment.php
+        - includes
+    bootstrapFiles:
+        - vendor/php-stubs/woocommerce-stubs/woocommerce-stubs.php
+        - vendor/php-stubs/woocommerce-stubs/woocommerce-packages-stubs.php
+        - tests/phpstan-bootstrap.php
+    # WordPress and WooCommerce docblocks are looser than what they return at runtime
+    # (for example wc_get_order() can return false). Defensive checks written against the
+    # real behaviour must not be reported as always-true.
+    treatPhpDocTypesAsCertain: false
