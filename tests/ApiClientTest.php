@@ -761,6 +761,39 @@ function test_process_payment_refreshes_terminal_session_and_clears_stale_transa
     );
 }
 
+function test_process_payment_accepts_a_numeric_string_order_id(): void {
+    test_reset_http_stubs();
+
+    $GLOBALS['test_options']['oen_merchant_id'] = 'merchant-123';
+    $GLOBALS['test_options']['oen_api_token']   = 'sk_test_secret';
+
+    $order = new WC_Order( 1011, 1234 );
+    $GLOBALS['test_wc_orders'][1011] = $order;
+
+    $GLOBALS['test_http_post_queue'][] = [
+        'response' => [ 'code' => 200 ],
+        'body'     => wp_json_encode( [
+                'id'          => 'sess_numeric',
+                'checkoutUrl' => 'https://oen.tw/checkout/sess_numeric',
+        ] ),
+    ];
+
+    // WooCommerce passes an integer, but code that starts a payment from a request value
+    // can hand over the id as a numeric string. The plugin source declares strict_types, so
+    // it has to convert the id itself instead of relying on implicit coercion.
+    $gateway = new Test_OEN_Gateway();
+    $result  = $gateway->process_payment( '1011' );
+
+    test_assert(
+        'success' === ( $result['result'] ?? null ),
+        'process_payment() should accept an order id passed as a numeric string.'
+    );
+    test_assert(
+        'sess_numeric' === $order->get_meta( '_oen_session_id' ),
+        'process_payment() should create the session for the order whose id was passed as a numeric string.'
+    );
+}
+
 function test_create_webhook_uses_hosted_checkout_contract(): void {
     test_reset_http_stubs();
 
@@ -1454,6 +1487,7 @@ test_process_payment_reuses_pending_session_with_top_level_status();
 test_process_payment_fails_closed_for_authoritative_charged_session();
 test_process_payment_fails_closed_for_unverified_failure_terminal_session();
 test_process_payment_refreshes_terminal_session_and_clears_stale_transaction_hid();
+test_process_payment_accepts_a_numeric_string_order_id();
 test_process_payment_creates_new_session_when_payment_method_changed();
 test_process_payment_cancels_the_superseded_session_after_the_replacement_exists();
 test_process_payment_persists_the_replacement_session_before_cancelling_the_old_one();

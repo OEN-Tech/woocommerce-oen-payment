@@ -1,5 +1,7 @@
 <?php
 
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 class OEN_API_Client {
@@ -261,7 +263,9 @@ class OEN_API_Client {
                 __( 'OEN Payment is not configured. Please set MerchantID and Secret Key.', 'woocommerce-oen-payment' )
             );
         }
-        return new self( $merchant_id, $secret_key, $sandbox );
+        // An option written earlier in this request comes back as saved (an integer, say),
+        // and the constructor declares strings.
+        return new self( (string) $merchant_id, (string) $secret_key, $sandbox );
     }
 
     private function resolve_base_url( bool $sandbox ): string {

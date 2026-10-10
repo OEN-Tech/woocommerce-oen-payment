@@ -16,6 +16,8 @@
  * WC tested up to: 11.1
  */
 
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 define( 'OEN_PAYMENT_VERSION', '1.0.4' );

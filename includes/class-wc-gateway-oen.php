@@ -1,5 +1,7 @@
 <?php
 
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 /**
@@ -99,7 +101,10 @@ abstract class WC_Gateway_OEN extends WC_Payment_Gateway {
      * @return array{result: string, redirect: string}
      */
     public function process_payment( $order_id ): array {
-        $order = wc_get_order( $order_id );
+        // WooCommerce passes an integer. Convert anything else here, because strict_types
+        // no longer coerces it for the typed calls below.
+        $order_id = (int) $order_id;
+        $order    = wc_get_order( $order_id );
 
         if ( ! $order ) {
             wc_add_notice(
