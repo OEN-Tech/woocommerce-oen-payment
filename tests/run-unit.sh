@@ -16,7 +16,8 @@ for t in \
     SettingsPageRegistrationTest \
     RefundTest \
     PaymentInfoTest \
-    StrictTypesTest
+    StrictTypesTest \
+    RepositoryChecksTest
 do
     printf '\n===== %s =====\n' "$t"
     if php "$DIR/$t.php"; then
