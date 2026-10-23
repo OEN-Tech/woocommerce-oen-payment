@@ -14,6 +14,11 @@ require_once __DIR__ . '/class-oen-webhook-parser.php';
  */
 class OEN_Webhook_Handler {
 
+    /**
+     * Largest request body, in bytes, written to the debug log.
+     */
+    private const LOG_CONTEXT_MAX_BYTES = 2048;
+
     public function __construct() {
         add_action( 'woocommerce_api_oen_payment', [ $this, 'handle' ] );
     }
@@ -871,7 +876,24 @@ class OEN_Webhook_Handler {
         $logger = wc_get_logger();
         $logger->info( $message, [ 'source' => 'oen-payment-webhook' ] );
         if ( $context ) {
-            $logger->debug( $context, [ 'source' => 'oen-payment-webhook' ] );
+            $logger->debug( $this->limit_log_context( $context ), [ 'source' => 'oen-payment-webhook' ] );
         }
+    }
+
+    /**
+     * Cap the request body written to the debug log. Requests that fail authentication
+     * also reach this log, so an uncapped body would let any caller grow it without limit.
+     *
+     * @param string $context Additional context (raw body, etc.).
+     */
+    private function limit_log_context( string $context ): string {
+        $length = strlen( $context );
+
+        if ( $length <= self::LOG_CONTEXT_MAX_BYTES ) {
+            return $context;
+        }
+
+        return substr( $context, 0, self::LOG_CONTEXT_MAX_BYTES )
+            . sprintf( '... [truncated, %d bytes total]', $length );
     }
 }

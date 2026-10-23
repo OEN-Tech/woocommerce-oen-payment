@@ -134,7 +134,10 @@ if ( ! function_exists( 'wc_get_logger' ) ) {
         return new class() {
             public function info( string $message, array $context = [] ): void {}
 
-            public function debug( string $message, array $context = [] ): void {}
+            public function debug( string $message, array $context = [] ): void {
+                // Recorded so harnesses can assert on what reaches the debug log.
+                $GLOBALS['test_wc_debug_logs'][] = $message;
+            }
 
             public function error( string $message, array $context = [] ): void {}
         };
