@@ -651,6 +651,49 @@ function test_log_caps_the_raw_body_written_to_the_debug_log(): void {
     );
 }
 
+function test_log_caps_the_message_written_to_the_info_log(): void {
+    $GLOBALS['test_wc_info_logs'] = [];
+
+    require_once __DIR__ . '/../includes/class-oen-webhook-handler.php';
+
+    // log() touches no WordPress hooks, so skip the constructor and call it directly.
+    $handler = ( new ReflectionClass( OEN_Webhook_Handler::class ) )->newInstanceWithoutConstructor();
+    $log     = new ReflectionMethod( OEN_Webhook_Handler::class, 'log' );
+    $message = 'Order not found for OEN orderId: ' . str_repeat( 'A', 200000 );
+    $log->invoke( $handler, $message );
+
+    $logged = $GLOBALS['test_wc_info_logs'][0] ?? '';
+
+    test_assert(
+        strlen( $logged ) < 4096,
+        'The info log must not record a caller-supplied message of arbitrary size.'
+    );
+    test_assert(
+        str_starts_with( $logged, 'Order not found for OEN orderId: AAAA' ),
+        'The truncated info entry should keep the start of the message.'
+    );
+    test_assert(
+        str_contains( $logged, strlen( $message ) . ' bytes total' ),
+        'The truncated info entry should still record the size of the original message.'
+    );
+}
+
+function test_log_writes_short_messages_to_the_info_log_unchanged(): void {
+    $GLOBALS['test_wc_info_logs'] = [];
+
+    require_once __DIR__ . '/../includes/class-oen-webhook-handler.php';
+
+    // log() touches no WordPress hooks, so skip the constructor and call it directly.
+    $handler = ( new ReflectionClass( OEN_Webhook_Handler::class ) )->newInstanceWithoutConstructor();
+    $log     = new ReflectionMethod( OEN_Webhook_Handler::class, 'log' );
+    $log->invoke( $handler, 'Order #42 already paid, skipping webhook.' );
+
+    test_assert(
+        ( $GLOBALS['test_wc_info_logs'][0] ?? '' ) === 'Order #42 already paid, skipping webhook.',
+        'A message under the size cap must reach the info log unchanged.'
+    );
+}
+
 test_handle_marks_order_paid_for_completed_session();
 test_handle_fails_closed_when_verified_session_amount_is_missing();
 test_handle_marks_order_paid_for_valid_signed_completed_session();
@@ -664,5 +707,7 @@ test_handle_refund_for_unknown_session_returns_404();
 test_handle_refund_creation_failure_returns_502();
 test_handle_refund_without_configured_secret_is_rejected();
 test_log_caps_the_raw_body_written_to_the_debug_log();
+test_log_caps_the_message_written_to_the_info_log();
+test_log_writes_short_messages_to_the_info_log_unchanged();
 
 echo "Webhook handler integration harness passed.\n";
