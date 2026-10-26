@@ -269,7 +269,9 @@ class OEN_API_Client {
     }
 
     private function resolve_base_url( bool $sandbox ): string {
-        $override = getenv( 'OEN_API_BASE_URL' );
+        // The override exists for the sandbox runtime harness. It is honoured only in sandbox
+        // mode, so a production client never sends its secret key to a host the environment names.
+        $override = $sandbox ? getenv( 'OEN_API_BASE_URL' ) : false;
         if ( is_string( $override ) && '' !== trim( $override ) ) {
             return rtrim( trim( $override ), '/' );
         }

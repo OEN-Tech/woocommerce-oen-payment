@@ -14,6 +14,12 @@ require_once __DIR__ . '/class-oen-webhook-parser.php';
  */
 class OEN_Webhook_Handler {
 
+    /**
+     * Largest log entry, in bytes, that log() writes. Messages and request bodies both carry
+     * caller-supplied text, so longer text is truncated.
+     */
+    private const LOG_CONTEXT_MAX_BYTES = 2048;
+
     public function __construct() {
         add_action( 'woocommerce_api_oen_payment', [ $this, 'handle' ] );
     }
@@ -864,14 +870,32 @@ class OEN_Webhook_Handler {
     /**
      * Log a webhook event for debugging.
      *
-     * @param string $message Log message.
+     * @param string $message Log message, which may carry request-supplied identifiers; it is capped like the context.
      * @param string $context Additional context (raw body, etc.).
      */
     private function log( string $message, string $context = '' ): void {
         $logger = wc_get_logger();
-        $logger->info( $message, [ 'source' => 'oen-payment-webhook' ] );
+        $logger->info( $this->limit_log_context( $message ), [ 'source' => 'oen-payment-webhook' ] );
         if ( $context ) {
-            $logger->debug( $context, [ 'source' => 'oen-payment-webhook' ] );
+            $logger->debug( $this->limit_log_context( $context ), [ 'source' => 'oen-payment-webhook' ] );
         }
+    }
+
+    /**
+     * Cap a log entry, either a message or a request body, at LOG_CONTEXT_MAX_BYTES. Requests
+     * that fail authentication also reach this log, and uncapped text from them would let any
+     * caller grow it without limit.
+     *
+     * @param string $context Log text: a message or a request body.
+     */
+    private function limit_log_context( string $context ): string {
+        $length = strlen( $context );
+
+        if ( $length <= self::LOG_CONTEXT_MAX_BYTES ) {
+            return $context;
+        }
+
+        return substr( $context, 0, self::LOG_CONTEXT_MAX_BYTES )
+            . sprintf( '... [truncated, %d bytes total]', $length );
     }
 }

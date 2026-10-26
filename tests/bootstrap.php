@@ -132,9 +132,15 @@ function wp_json_encode( mixed $value, int $flags = 0, int $depth = 512 ): strin
 if ( ! function_exists( 'wc_get_logger' ) ) {
     function wc_get_logger(): object {
         return new class() {
-            public function info( string $message, array $context = [] ): void {}
+            public function info( string $message, array $context = [] ): void {
+                // Recorded so harnesses can assert on what reaches the info log.
+                $GLOBALS['test_wc_info_logs'][] = $message;
+            }
 
-            public function debug( string $message, array $context = [] ): void {}
+            public function debug( string $message, array $context = [] ): void {
+                // Recorded so harnesses can assert on what reaches the debug log.
+                $GLOBALS['test_wc_debug_logs'][] = $message;
+            }
 
             public function error( string $message, array $context = [] ): void {}
         };

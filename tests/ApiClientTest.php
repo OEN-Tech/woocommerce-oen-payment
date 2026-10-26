@@ -413,6 +413,33 @@ function test_get_session_respects_runtime_api_base_url_override(): void {
     }
 }
 
+function test_get_session_ignores_runtime_api_base_url_override_when_sandbox_is_off(): void {
+    test_reset_http_stubs();
+
+    putenv( 'OEN_API_BASE_URL=http://api-stub:8080' );
+
+    try {
+        $client = new OEN_API_Client( 'merchant-123', 'sk_test_secret', false );
+
+        $GLOBALS['test_http_get_queue'][] = [
+            'response' => [ 'code' => 200 ],
+            'body'     => wp_json_encode( [
+                    'id'     => 'sess_123',
+                    'status' => 'pending',
+            ] ),
+        ];
+
+        $client->get_session( 'sess_123' );
+
+        test_assert(
+            ( $GLOBALS['test_http_get_calls'][0]['url'] ?? null ) === 'https://api.oen.tw/api/hosted-checkout/v1/sessions/sess_123',
+            'A production client must ignore OEN_API_BASE_URL, so its secret key is never sent to a host named by the environment.'
+        );
+    } finally {
+        putenv( 'OEN_API_BASE_URL' );
+    }
+}
+
 function test_process_payment_reuses_existing_reusable_session(): void {
     test_reset_http_stubs();
 
@@ -1480,6 +1507,7 @@ test_create_session_rejects_missing_session_id();
 test_create_session_uses_unique_idempotency_key_per_attempt();
 test_get_session_uses_hosted_checkout_contract();
 test_get_session_respects_runtime_api_base_url_override();
+test_get_session_ignores_runtime_api_base_url_override_when_sandbox_is_off();
 test_process_payment_reuses_existing_reusable_session();
 test_process_payment_fails_closed_for_mismatched_reusable_session();
 test_process_payment_fails_closed_for_completed_terminal_reusable_session();
