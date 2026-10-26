@@ -1,5 +1,7 @@
 <?php
 
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 /**
@@ -105,8 +107,13 @@ class OEN_Email_Handler {
 
     /**
      * Render plain text email payment info.
+     *
+     * A plain text email body is not HTML, so escaping it with esc_html() would put
+     * entities such as &amp; into the text the buyer reads. That is why the output
+     * escaping check is switched off for this method only.
      */
     private function render_plain_text( \WC_Order $order, string $transaction_hid ): void {
+        // phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- plain text email body, see the method comment.
         echo "\n" . __( 'Payment Information', 'woocommerce-oen-payment' ) . "\n";
         echo str_repeat( '-', 40 ) . "\n";
 
@@ -137,5 +144,6 @@ class OEN_Email_Handler {
         }
 
         echo "\n";
+        // phpcs:enable WordPress.Security.EscapeOutput.OutputNotEscaped
     }
 }

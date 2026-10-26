@@ -1,5 +1,7 @@
 <?php
 
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 require_once __DIR__ . '/class-oen-webhook-parser.php';
@@ -20,7 +22,9 @@ class OEN_Webhook_Handler {
      * Process the incoming webhook payload.
      */
     public function handle(): void {
-        $raw_body = file_get_contents( 'php://input' );
+        // file_get_contents() returns false when the request body cannot be read; treat that
+        // as an empty body, which the parser rejects with a 400.
+        $raw_body = (string) file_get_contents( 'php://input' );
 
         try {
             $payload = $this->parse_webhook_payload( $raw_body );
@@ -336,7 +340,7 @@ class OEN_Webhook_Handler {
      * @return array<string, mixed>
      */
     private function parse_webhook_payload( string $raw_body ): array {
-        $parser = new OEN_Webhook_Parser( get_option( 'oen_webhook_secret', '' ) );
+        $parser = new OEN_Webhook_Parser( (string) get_option( 'oen_webhook_secret', '' ) );
 
         return $parser->parse( $raw_body, $this->get_signature_header() );
     }

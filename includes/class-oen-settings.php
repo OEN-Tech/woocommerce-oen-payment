@@ -1,5 +1,7 @@
 <?php
 
+declare( strict_types=1 );
+
 defined( 'ABSPATH' ) || exit;
 
 class OEN_Settings extends WC_Settings_Page {

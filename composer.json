@@ -1,0 +1,40 @@
+{
+    "name": "oen-tech/woocommerce-oen-payment",
+    "description": "WooCommerce OEN 金流付款外掛 — 支援信用卡、超商繳費付款方式",
+    "type": "wordpress-plugin",
+    "license": "GPL-3.0-or-later",
+    "homepage": "https://github.com/OEN-Tech/woocommerce-oen-payment",
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "dealerdirect/phpcodesniffer-composer-installer": "^1.0",
+        "php-stubs/woocommerce-stubs": "^11.0",
+        "php-stubs/wordpress-stubs": "^7.0",
+        "phpcompatibility/phpcompatibility-wp": "^2.1",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan": "^2.1",
+        "szepeviktor/phpstan-wordpress": "^2.0",
+        "wp-coding-standards/wpcs": "^3.1"
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "phpstan/extension-installer": true
+        },
+        "platform": {
+            "php": "8.1.0"
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "test": "sh tests/run-unit.sh",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "lint": "phpcs"
+    },
+    "scripts-descriptions": {
+        "test": "Run the unit/contract harnesses (no network, no Docker).",
+        "analyse": "Run PHPStan static analysis.",
+        "lint": "Run PHP_CodeSniffer (WordPress security, database, i18n and PHP compatibility sniffs)."
+    }
+}

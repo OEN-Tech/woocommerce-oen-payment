@@ -436,6 +436,16 @@ Webhook 整合測試以 Docker Compose 啟動 WordPress、MariaDB 與本機的�
 bash tests/runtime/run-webhook-runtime-test.sh
 ```
 
+靜態分析（PHPStan 與 PHP_CodeSniffer）需要 [Composer](https://getcomposer.org/)：
+
+```sh
+composer install
+composer analyse   # PHPStan，level 5
+composer lint      # PHP_CodeSniffer：WordPress-Extra（不含排版規則）與 PHP 8.1 以上相容性
+```
+
+每個 pull request 與推送到 `main` 的提交，都會由 GitHub Actions 執行上述全部檢查，單元／契約測試涵蓋 PHP 8.1 至 8.5。
+
 這是公開 repository，提交前請先閱讀 [CLAUDE.md](CLAUDE.md)：不得提交任何憑證、內部網址、雲端資源識別碼、內部 ticket 或後端實作細節；測試截圖與紀錄放在已被 Git 忽略的 `tests/evidence/`。`docs/images/` 的截圖只能使用示範資料。
 
 ## 授權

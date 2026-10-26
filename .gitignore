@@ -11,9 +11,8 @@ Thumbs.db
 # WordPress
 wp-config.php
 
-# Composer
+# Composer (composer.lock is committed so CI installs the same tool versions)
 /vendor/
-composer.lock
 
 # Node (if build tools added later)
 /node_modules/

@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<ruleset name="OEN Payment"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/PHPCSStandards/PHP_CodeSniffer/master/phpcs.xsd">
+
+	<description>WordPress-Extra for the plugin source, minus the formatting conventions this code base does not follow. Run with `composer lint`.</description>
+
+	<file>woocommerce-oen-payment.php</file>
+	<file>includes</file>
+
+	<arg name="extensions" value="php"/>
+	<arg name="basepath" value="./"/>
+	<arg name="parallel" value="8"/>
+	<arg value="ps"/>
+
+	<!-- The plugin header declares PHP 8.1 and WordPress 6.1 as the minimums. -->
+	<config name="testVersion" value="8.1-"/>
+	<config name="minimum_supported_wp_version" value="6.1"/>
+
+	<rule ref="PHPCompatibilityWP"/>
+
+	<rule ref="WordPress-Extra">
+		<!--
+			Formatting. The code base is indented with four spaces, uses short array syntax
+			and short ternaries, and breaks function calls its own way. The security,
+			database, i18n and correctness sniffs of WordPress-Extra stay on.
+		-->
+		<exclude name="Generic.WhiteSpace.DisallowSpaceIndent"/>
+		<exclude name="Universal.Arrays.DisallowShortArraySyntax"/>
+		<exclude name="Universal.Operators.DisallowShortTernary"/>
+		<exclude name="WordPress.Arrays.ArrayDeclarationSpacing"/>
+		<exclude name="WordPress.Arrays.MultipleStatementAlignment"/>
+		<exclude name="Generic.Formatting.MultipleStatementAlignment"/>
+		<exclude name="PEAR.Functions.FunctionCallSignature"/>
+		<exclude name="PSR2.Classes.PropertyDeclaration"/>
+		<exclude name="WordPress.PHP.YodaConditions"/>
+
+		<!--
+			Hook callbacks keep trailing parameters they do not read, because WordPress
+			passes them and the callback has to be registered with the matching count.
+		-->
+		<exclude name="Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed"/>
+
+		<!--
+			Exception messages are logged or replaced by a generic notice; they are never
+			printed. Escaping them for output would only corrupt the log text.
+		-->
+		<exclude name="WordPress.Security.EscapeOutput.ExceptionNotEscaped"/>
+	</rule>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="woocommerce-oen-payment"/>
+			</property>
+		</properties>
+	</rule>
+
+	<!--
+		Two messages in the API client have placeholders but no "translators:" comment, and its
+		URL builders use urlencode() where rawurlencode() is the stricter choice. Both predate
+		this ruleset; the exclusions are scoped to that file so every other file is still checked.
+	-->
+	<rule ref="WordPress.WP.I18n.MissingTranslatorsComment">
+		<exclude-pattern>includes/class-oen-api-client\.php</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.PHP.DiscouragedPHPFunctions.urlencode_urlencode">
+		<exclude-pattern>includes/class-oen-api-client\.php</exclude-pattern>
+	</rule>
+</ruleset>

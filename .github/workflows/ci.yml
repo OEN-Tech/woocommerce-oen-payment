@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    name: Unit tests (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # The plugin header declares PHP 8.1 as the minimum.
+        php: ['8.1', '8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Check PHP syntax
+        run: find woocommerce-oen-payment.php includes tests -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Run unit harnesses
+        run: sh tests/run-unit.sh
+
+  static-analysis:
+    name: PHPStan and PHPCS
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: |
+          composer validate --strict
+          composer install --no-interaction --no-progress --prefer-dist
+
+      - name: PHPStan
+        run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+
+      - name: PHPCS
+        run: vendor/bin/phpcs
+
+  runtime:
+    # Boots WordPress and WooCommerce in Docker against a local API stub, so it needs
+    # Docker Hub and wordpress.org to be reachable. WooCommerce is installed at its latest
+    # release, which makes this job a compatibility signal as well as a regression test.
+    name: WordPress runtime harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      # The harness mounts the plugin into WordPress containers that change its file
+      # ownership, so run it from a copy and leave the checkout and its .git alone.
+      - name: Copy the plugin to a scratch directory
+        run: |
+          cp -a . "$RUNNER_TEMP/plugin"
+          rm -rf "$RUNNER_TEMP/plugin/.git"
+
+      - name: Run the runtime harness
+        working-directory: ${{ runner.temp }}/plugin
+        run: bash tests/runtime/run-webhook-runtime-test.sh
